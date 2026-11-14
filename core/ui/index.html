@@ -52,6 +52,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
 .ib{width:40px;height:40px;border:2px solid var(--l2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--m)}
 .ib:hover{border-color:var(--t);color:var(--t)}
 .ab{display:inline-block;margin-left:8px;font:13px "Bebas Neue",sans-serif;letter-spacing:.04em;color:var(--a);border:1px solid var(--ad);border-radius:6px;padding:1px 6px}
+.ab.w{color:#ffb020;border-color:#4a3300}.ab.x{color:#ff6b6b;border-color:#4a1515}
 .row.live .tt,.row.live .n{color:var(--a)}
 .row.drag{opacity:.4}.ph{height:3px;background:var(--a);border-radius:3px}
 .empty{border:2px dashed var(--l2);border-radius:20px;padding:50px 24px;text-align:center}
@@ -156,6 +157,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
    <button class="btn" id="bShuf">Shuffle</button>
    <button class="btn" id="bMore">⋯</button>
   </div>
+  <div id="needT"></div>
   <div id="list"></div>
  </div></div>
  <div class="dock" id="dock"><div class="in"><button class="big D" id="bPlaySet">Play the set ▶</button></div></div>
@@ -188,7 +190,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
   </div>
   <div class="stat"><span class="k D">Auto-mix</span><span class="v D" id="lStat">Ready</span>
    <button class="btn sm D" id="lRm">✕ Skip next</button><button class="btn sm acc D" id="lPn">＋ Play next</button></div>
-  <div class="bb"><button class="big D" id="lSkip">Skip</button><button class="big out D" id="lFull">Play full</button></div>
+  <div class="bb"><button class="big D" id="lSkip">Skip</button><button class="big out D" id="lFull">Pause</button></div>
   <div class="q2" id="lq"></div>
  </div></div>
 
@@ -323,12 +325,15 @@ function newSet(){dialog("New set",`<input id="dlgIn" placeholder="e.g. Saturday
 function rSet(){const p=P(S.open);if(!p){go("lib");return}
  if(document.activeElement!==$("setName"))$("setName").value=p.name;
  $("setSum").textContent=`${p.items.length} songs · ${fmt(setTotal(p))} total with the cuts`;
- $("bCf").textContent=`Mix · ${p.crossfade}s fade · ${p.clip_len||75}s clips`;
+ $("bCf").textContent=`Mix · ${p.crossfade}s fade · ${p.clip_len||60}s clips`;
+ const ne=p.items.filter(i=>i.auto==="estimate"&&!i.unplayable).length;
+ $("needT").innerHTML=ne&&!autoBusy?`<div class="stat" style="margin:0 0 16px"><span class="k D" style="color:#ffb020">Your turn</span><span class="v" style="font-size:15px;font-family:Inter;text-transform:none;white-space:normal">${ne} song${ne>1?"s have":" has"} no “Most replayed” data, so we guessed. Pick the best part yourself, or keep the guess.</span><button class="btn sm acc D" id="bRev">Set timings</button></div>`:"";
+ if($("bRev"))$("bRev").onclick=()=>review(p.id);
  const l=$("list");const liveUid=E.pl&&E.pl.id===p.id&&E.curItem?E.curItem.uid:null;
  if(!p.items.length){l.innerHTML=`<div class="empty"><div class="D">Nothing here yet</div><p class="sub">Search YouTube or paste links, then pick the best part of each song.</p><button class="btn acc D" id="eAddF">＋ Add your first song</button></div>`;$("eAddF").onclick=openAdd;return}
  l.innerHTML=p.items.map((it,i)=>{const d=it.duration||Math.max(it.end,1);
   return `<div class="row${it.uid===liveUid?" live":""}" data-i="${i}"><span class="h">⋮⋮</span><span class="n D">${i+1}</span><img loading="lazy" src="${thumb(it.video_id,"default")}">
-  <div style="min-width:0"><div class="tt D">${esc(it.title)}</div><div class="ch">${esc(it.channel||"")}${it.auto?`<span class="ab">Auto · ${SRC[it.auto]}</span>`:""}</div></div>
+  <div style="min-width:0"><div class="tt D">${esc(it.title)}</div><div class="ch">${esc(it.channel||"")}${it.unplayable?`<span class="ab x">Can't play · skipped</span>`:it.auto==="estimate"?`<span class="ab w">Needs your timing</span>`:it.auto?`<span class="ab">Auto · ${SRC[it.auto]}</span>`:""}</div></div>
   <div class="mini"><i style="left:${it.start/d*100}%;width:${Math.max(2,seg(it)/d*100)}%"></i></div>
   <span class="rg D">${fmt(it.start)}–${fmt(it.end)}</span><button class="ib dup" title="Duplicate">⧉</button><button class="ib del" title="Remove">✕</button></div>`}).join("")}
 $("list").addEventListener("click",e=>{const r=e.target.closest(".row");if(!r||e.target.closest(".h"))return;const p=P(S.open),i=+r.dataset.i,it=p.items[i];
@@ -338,8 +343,8 @@ $("list").addEventListener("click",e=>{const r=e.target.closest(".row");if(!r||e
 $("setName").addEventListener("input",()=>{const p=P(S.open);p.name=$("setName").value.trim()||"Untitled set";save(p)});
 $("bBack").onclick=()=>go("lib");$("bAdd").onclick=openAdd;
 $("bShuf").onclick=()=>{const p=P(S.open);const a=p.items;for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}save(p);render()};
-$("bCf").onclick=()=>{const p=P(S.open);const L=p.clip_len||75;dialog("Mix settings",`<p class="sub" style="margin:0 0 6px">Crossfade: how long one song fades out while the next fades in.</p><input type="range" id="dlgR" min="0" max="12" step="0.5" value="${p.crossfade}" style="accent-color:var(--a);padding:0;border:0"><div class="D" id="dlgV" style="font-size:40px;margin:4px 0 14px">${p.crossfade}s</div>
- <p class="sub" style="margin:0 0 6px">Auto clip length</p><div style="display:flex;gap:8px;flex-wrap:wrap" id="dlgL">${[45,60,75,90].map(x=>`<button class="btn sm${x==L?" acc":""}" data-l="${x}">${x}s</button>`).join("")}</div>
+$("bCf").onclick=()=>{const p=P(S.open);const L=p.clip_len||60;dialog("Mix settings",`<p class="sub" style="margin:0 0 6px">Crossfade: how long one song fades out while the next fades in.</p><input type="range" id="dlgR" min="0" max="12" step="0.5" value="${p.crossfade}" style="accent-color:var(--a);padding:0;border:0"><div class="D" id="dlgV" style="font-size:40px;margin:4px 0 14px">${p.crossfade}s</div>
+ <p class="sub" style="margin:0 0 6px">Clip length (we always play a part, never the full song)</p><div style="display:flex;gap:8px;flex-wrap:wrap" id="dlgL">${[30,45,60,90].map(x=>`<button class="btn sm${x==L?" acc":""}" data-l="${x}">${x}s</button>`).join("")}</div>
  <label style="display:flex;gap:10px;align-items:center;margin-top:16px;color:var(--m)"><input type="checkbox" id="dlgC" style="width:auto;accent-color:var(--a)" ${p.replayed!==false?"checked":""}> Snap to YouTube's “Most replayed” peak</label>`,
  [["Done",()=>{const nl=+($("dlgL").querySelector(".acc")||{}).dataset?.l||L;const ch=nl!==L||$("dlgC").checked!==(p.replayed!==false);p.crossfade=+$("dlgR").value;p.clip_len=nl;p.replayed=$("dlgC").checked;save(p);render();
   const au=p.items.filter(i=>i.auto).map(i=>i.uid);if(ch&&au.length)autoTime(p.id,au)},1]]);
@@ -372,7 +377,7 @@ $("fS").onsubmit=async e=>{e.preventDefault();const q=$("qS").value.trim();if(!q
  $("rS").innerHTML=lastRes.map((x,i)=>`<div class="res"><img loading="lazy" src="${thumb(x.id)}"><div style="min-width:0"><div class="tt">${esc(x.title)}</div><div class="ch">${esc(x.channel)}${x.duration?" · "+fmt(x.duration):""}</div></div>
   <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm acc D" data-pick="${i}">Pick part</button><button class="btn sm D" data-auto="${i}">＋ Add</button></div></div>`).join("")};
 $("rS").onclick=e=>{const b=e.target.closest("button");if(!b)return;const x=lastRes[+(b.dataset.pick??b.dataset.auto)];if(!x)return;
- const it={uid:uid(),video_id:x.id,title:x.title,channel:x.channel,duration:x.duration||null,start:0,end:x.duration||0};
+ const it=Object.assign({uid:uid(),video_id:x.id,title:x.title,channel:x.channel,duration:x.duration||null},est(x.duration,P(S.open).clip_len));delete it.auto;
  if(b.dataset.auto!=null){const p=P(S.open);Object.assign(it,est(x.duration,p.clip_len));addItems([it]);b.textContent="✓ Added";autoTime(p.id,[it.uid])}else openEditor(it,{pid:S.open})};
 $("fL").onsubmit=e=>{e.preventDefault();const t=$("qL").value,v=vidOf(t);$("eL").textContent="";if(!v){$("eL").textContent="That doesn't look like a YouTube link.";return}
  const st=tOf(t);openEditor({uid:uid(),video_id:v,title:"",channel:"",duration:null,start:isNaN(st)?0:st,end:0},{pid:S.open})};
@@ -388,24 +393,26 @@ $("bB").onclick=async()=>{const lines=$("qB").value.split(/\n/);const rows=[],er
 async function ytImport(url,pid){url=(url||"").trim();if(!/[?&]list=/.test(url)){toast("Paste a link that contains list=…");return}
  toast("Importing playlist… this can take a few seconds");const r=await B.call("ytplaylist",{url});
  if(!r.ok||!r.items||!r.items.length){toast("Import failed: "+(r.error||"no playable songs found"));return}
- const its=r.items.map(x=>Object.assign({uid:uid(),video_id:x.id,title:x.title||x.id,channel:x.channel||"",duration:x.duration},est(x.duration,75)));
+ const its=r.items.map(x=>Object.assign({uid:uid(),video_id:x.id,title:x.title||x.id,channel:x.channel||"",duration:x.duration},est(x.duration,(P(pid)||{}).clip_len||60)));
  let p=pid&&P(pid);if(!p){p={id:uid(),name:(r.title||"YouTube playlist").slice(0,80),crossfade:4,items:[],created:now(),updated:now()};S.data.playlists[p.id]=p;(S.created=S.created||{})[p.id]=1}
  p.items.push(...its);save(p,true);go("set",p.id);autoTime(p.id,its.map(i=>i.uid));toast(`Imported ${its.length} songs${r.skipped?` (${r.skipped} unavailable skipped)`:""}`)}
 $("fP").onsubmit=e=>{e.preventDefault();ytImport($("qP").value,S.open);$("ovAdd").classList.remove("on")};
 const SRC={replayed:"Most replayed",chapter:"Chapter",estimate:"Estimate"};
-function est(d,L){L=+L||75;d=+d||0;if(!d)return{start:30,end:30+L,auto:"estimate"};if(d<=L+15)return{start:Math.round(Math.min(8,d*.05)),end:Math.round(Math.max(d-2,5)),auto:"estimate"};
+function est(d,L){L=+L||60;d=+d||0;if(!d)return{start:30,end:30+L,auto:"estimate"};if(d<=L+15){const s=Math.round(Math.min(8,d*.05));return{start:s,end:Math.round(Math.min(d-2,s+L)),auto:"estimate"}}
  const s=Math.round(d*.22);return{start:s,end:Math.min(d-3,s+L),auto:"estimate"}}
 let autoBusy=0;
 async function autoTime(pid,uids){const p0=P(pid);if(!p0||!uids.length)return;autoBusy++;const big=uids.length>3;let done=0;
  for(let k=0;k<uids.length;k+=8){const p=P(pid);if(!p)break;const batch=p.items.filter(i=>uids.slice(k,k+8).includes(i.uid)&&i.auto);if(!batch.length)continue;
   if(big)toast(`Finding best parts… ${done}/${uids.length}`);
-  const r=await B.call("autocut",{videos:batch.map(i=>({id:i.video_id,duration:i.duration})),length:p.clip_len||75,replayed:p.replayed!==false});
+  const r=await B.call("autocut",{videos:batch.map(i=>({id:i.video_id,duration:i.duration})),length:p.clip_len||60,replayed:p.replayed!==false});
   const q=P(pid);if(!q||!r.cuts)continue;let ch=0;
   q.items.forEach(i=>{const c=r.cuts[i.video_id];if(c&&i.auto&&batch.some(b=>b.uid===i.uid)){
    const dupes=q.items.filter(x=>x.video_id===i.video_id&&x.auto);if(dupes.length>1&&dupes[0].uid!==i.uid)return; // keep extra copies where they are
    i.start=c.start;i.end=c.end;i.duration=c.duration||i.duration;i.auto=c.source;ch=1}});
   done+=batch.length;if(ch){save(q);if(E.pl&&E.pl.id===pid)E.receive(q);render()}}
- autoBusy--;if(big)toast(`Best parts picked for ${uids.length} songs ✨`)}
+ autoBusy--;render();if(big)toast(`Best parts picked for ${uids.length} songs ✨`)}
+function review(pid){const p=P(pid);const it=p&&p.items.find(i=>i.auto==="estimate"&&!i.unplayable);if(!it){toast("All timings set ✓");return}
+ openEditor(Object.assign({},it),{pid,uid:it.uid,review:1});$("edH").textContent=`Pick the best part · ${p.items.filter(i=>i.auto==="estimate"&&!i.unplayable).length} left`;$("eAdd").textContent="Save & next"}
 function addItems(its){const p=P(S.open);p.items.push(...its);save(p);render()}
 
 /* ---------- clip editor ---------- */
@@ -420,7 +427,8 @@ function openEditor(it,ctx){ed={orig:[it.start,it.end],autoSet:null,it,ctx,dur:i
  edRender();clearInterval(pvTimer);pvTimer=setInterval(edTick,150)}
 function closeEditor(){$("ovEd").classList.remove("on");clearInterval(pvTimer);try{PV.pauseVideo()}catch(e){}ed=null}
 function edTick(){if(!ed||!pvReady)return;let d=0;try{d=PV.getDuration()}catch(e){}
- if(d>0&&Math.abs(d-ed.dur)>.5){ed.dur=d;if(!ed.it.end||ed.it.end>d)ed.it.end=ed.ctx.uid?Math.min(ed.it.end||d,d):d;edRender()}
+ if(d>0&&Math.abs(d-ed.dur)>.5){ed.dur=d;if(!ed.ctx.uid&&(!ed.it.end||ed.it.end-ed.it.start>=d-1)){const c=est(d,(P(ed.ctx.pid)||{}).clip_len);if(ed.it.start>0&&ed.it.start<d-10){c.start=ed.it.start;c.end=Math.min(d-1,ed.it.start+((P(ed.ctx.pid)||{}).clip_len||60))}ed.it.start=c.start;ed.it.end=c.end;ed.orig=[c.start,c.end]}
+  else if(ed.it.end>d)ed.it.end=d;edRender()}
  if(!$("edT").value){try{const v=PV.getVideoData();if(v&&v.title){$("edT").value=v.title;ed.it.channel=ed.it.channel||v.author}}catch(e){}}
  const t=PV.getCurrentTime?PV.getCurrentTime():0;if(ed.clipStop&&t>=ed.clipStop){PV.pauseVideo();ed.clipStop=null}
  $("eNow").textContent=`${fmt(t)} / ${fmt(ed.dur)}`;$("ePh").style.left=(ed.dur?t/ed.dur*100:0)+"%";
@@ -448,18 +456,20 @@ $("ePP").onclick=()=>{ed.clipStop=null;PV.getPlayerState()===1?PV.pauseVideo():P
 $("ePC").onclick=()=>{ed.clipStop=ed.it.end;PV.seekTo(ed.it.start,true);PV.playVideo()};
 $("eX").onclick=closeEditor;
 $("eAuto").onclick=async()=>{if(!ed)return;const p=P(ed.ctx.pid)||{};$("eAuto").textContent="Finding…";
- const r=await B.call("autocut",{videos:[{id:ed.it.video_id,duration:ed.dur}],length:p.clip_len||75,replayed:p.replayed!==false});$("eAuto").textContent="✨ Auto";
+ const r=await B.call("autocut",{videos:[{id:ed.it.video_id,duration:ed.dur}],length:p.clip_len||60,replayed:p.replayed!==false});$("eAuto").textContent="✨ Auto";
  const c=r.cuts&&r.cuts[ed.it.video_id];if(!c||!ed)return;ed.it.start=c.start;ed.it.end=c.end;ed.autoSet=c.source;edRender();try{PV.seekTo(c.start,true)}catch(e){}
  $("eLen").textContent+=` · picked from ${SRC[c.source]}`};
 function edCommit(again){const it=ed.it;
  if(ed.autoSet&&ed.autoAt&&ed.autoAt[0]===it.start&&ed.autoAt[1]===it.end)it.auto=ed.autoSet;
  else if(ed.autoSet)it.auto=ed.autoSet;
- if(!ed.autoSet&&(it.start!==ed.orig[0]||it.end!==ed.orig[1]))it.auto=null;it.title=$("edT").value.trim()||it.title||it.video_id;it.duration=ed.dur||it.duration||null;
+ if(!ed.autoSet&&(it.start!==ed.orig[0]||it.end!==ed.orig[1]||ed.ctx.review))it.auto=null;
+ if(ed.ctx.uid)delete it.unplayable;it.title=$("edT").value.trim()||it.title||it.video_id;it.duration=ed.dur||it.duration||null;
  if(!(it.end-it.start>=3)){$("eErr").textContent="Clip must be at least 3 seconds. Set the OUT point after the IN point.";return}
  const p=P(ed.ctx.pid);if(!p){closeEditor();return}
  if(ed.ctx.uid){const i=p.items.findIndex(x=>x.uid===ed.ctx.uid);if(i>=0)p.items[i]=Object.assign({},it,{uid:ed.ctx.uid})}else p.items.push(Object.assign({},it,{uid:uid()}));
  save(p);render();toast(ed.ctx.uid?"Clip saved":`Added ${it.title} (${fmt(it.start)}–${fmt(it.end)})`);
- if(again){ed.it=Object.assign({},it,{start:it.end,end:Math.min(ed.dur||it.end+60,it.end+60)});edRender();try{PV.seekTo(ed.it.start,true)}catch(e){}}else closeEditor()}
+ if(again){const L=(p.clip_len||60);ed.it=Object.assign({},it,{auto:null,start:it.end,end:Math.min(ed.dur||it.end+L,it.end+L)});ed.orig=[ed.it.start,ed.it.end];edRender();try{PV.seekTo(ed.it.start,true)}catch(e){}}
+ else{const rv=ed.ctx.review,pid=ed.ctx.pid;closeEditor();if(rv)setTimeout(()=>review(pid),250)}}
 $("eAdd").onclick=()=>edCommit(false);$("eAdd2").onclick=()=>edCommit(true);
 $("eDel").onclick=()=>{const p=P(ed.ctx.pid);p.items=p.items.filter(x=>x.uid!==ed.ctx.uid);save(p);closeEditor();render()};
 
@@ -484,8 +494,9 @@ class Deck{constructor(n){this.name=n;this.wrap=$("deck"+n);this.item=null;this.
  prime(it){this.item=it;this.state="loading";this.since=performance.now();try{this.player.mute();this.setVol(0);this.player.loadVideoById({videoId:it.video_id,startSeconds:it.start})}catch(e){this.state="error"}}
  onState(s){if(s===1&&this.state==="loading"){this.player.pauseVideo();this.player.seekTo(this.item.start,true);this.state="primed"}
   else if(s===0&&this.state==="playing")E.ended(this)}
- onErr(c){this.state="error";if(this.item){const o=E.items.find(x=>x.uid===this.item.uid);if(o)o.bad=ERR[c]||"error "+c}E.deckErr(this)}
- go(v){this.state="playing";try{this.player.unMute();this.setVol(v);this.player.playVideo()}catch(e){}}
+ onErr(c){this.state="error";if(this.item){const o=E.items.find(x=>x.uid===this.item.uid);if(o)o.bad=ERR[c]||(c==="stall"?"stopped loading":"error "+c);
+  if([2,100,101,150].includes(c)&&E.pl){const p=P(E.pl.id),pi=p&&p.items.find(x=>x.uid===this.item.uid);if(pi&&!pi.unplayable){pi.unplayable=true;save(p)}}}E.deckErr(this)}
+ go(v){this.state="playing";this.moved=performance.now();this.lt=-1;try{this.player.unMute();this.setVol(v);this.player.playVideo()}catch(e){}}
  pause(){if(this.state==="playing"){this.state="paused";try{this.player.pauseVideo()}catch(e){}}}
  resume(){if(this.state==="paused"){this.state="playing";try{this.player.playVideo()}catch(e){}}}
  stop(){this.state="empty";this.item=null;try{this.player.pauseVideo();this.player.mute()}catch(e){}}
@@ -495,12 +506,14 @@ class Deck{constructor(n){this.name=n;this.wrap=$("deck"+n);this.item=null;this.
  show(o){this.wrap.classList.toggle("on",o)}}
 
 const E={pl:null,items:[],cf:4,offs:[],tot:0,A:null,B:null,cur:null,curItem:null,idx:-1,playing:false,paused:false,fade:null,wait:null,
- master:100,ready:0,last:performance.now(),skip:new Set(),force:null,full:false,
+ master:100,g:1,gT:1,after:null,ready:0,
+ M(){return this.master*this.g},
+ gain(t,then){this.gT=t;this.after=then||null},last:performance.now(),skip:new Set(),force:null,full:false,
  other(d){return d===this.A?this.B:this.A},
  load(p){this.pl=p;this.cf=+p.crossfade||0;const bad={};this.items.forEach(x=>{if(x.bad)bad[x.uid]=x.bad});
   this.items=p.items.map(x=>Object.assign({},x,bad[x.uid]?{bad:bad[x.uid]}:{}));const o=[];let t=0;
   this.items.forEach((it,i)=>{o.push(t);t+=seg(it)-(i+1<this.items.length?cfB(it,this.items[i+1],this.cf):0)});this.offs=o;this.tot=t},
- ok(i){const x=this.items[i];return x&&!x.bad&&!this.skip.has(x.uid)&&seg(x)>0},
+ ok(i){const x=this.items[i];return x&&!x.bad&&!x.unplayable&&!this.skip.has(x.uid)&&seg(x)>0},
  nextIdx(){if(this.force){const f=this.items.findIndex(x=>x.uid===this.force);if(f>=0&&f!==this.idx&&this.ok(f))return f;this.force=null}
   for(let i=this.idx+1;i<this.items.length;i++)if(this.ok(i))return i;return -1},
  receive(p){if(!this.pl||this.pl.id!==p.id)return;const cu=this.curItem&&this.curItem.uid,old=this.idx;this.load(p);
@@ -510,26 +523,28 @@ const E={pl:null,items:[],cf:4,offs:[],tot:0,A:null,B:null,cur:null,curItem:null
   if(onlyDiff&&sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&sb.state!=="error")return;sb.prime(Object.assign({},it))},
  playSet(p){if(this.ready<2){toast("Player still loading, try again in a second");return}this.stopDecks();this.skip.clear();this.force=null;this.items=[];this.load(p);this.idx=-1;
   let s=-1;for(let i=0;i<this.items.length;i++)if(this.ok(i)){s=i;break}if(s<0){toast("No playable songs in this set");return}this.startAt(s)},
- startAt(i){this.playing=true;this.paused=false;this.fade=null;this.full=false;const d=this.cur||this.A;this.other(d).stop();this.cur=null;
-  this.wait={idx:i,dur:1,deck:d,since:performance.now(),fresh:true};d.prime(Object.assign({},this.items[i]));wake(true);dirtyLive=true;rChrome()},
+ startAt(i){this.playing=true;this.paused=false;this.fade=null;this.full=false;this.g=1;this.gT=1;this.after=null;const d=this.cur||this.A;this.other(d).stop();this.cur=null;
+  this.wait={idx:i,dur:2,deck:d,since:performance.now(),fresh:true};d.prime(Object.assign({},this.items[i]));wake(true);dirtyLive=true;rChrome()},
  trans(i,dur){const sb=this.other(this.cur),it=this.items[i];
   if(!(sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&(sb.state==="primed"||sb.state==="loading")))sb.prime(Object.assign({},it));
   this.wait={idx:i,dur,deck:sb,since:performance.now()}},
  begin(w){const to=w.deck,from=w.fresh?null:this.cur;to.go(0);to.show(true);if(from)setTimeout(()=>{if(this.cur!==from)from.show(false)},Math.max(400,w.dur*600));
   this.fade={from,to,dur:Math.max(.05,w.dur),p:0};this.cur=to;this.curItem=to.item;this.idx=w.idx;this.wait=null;this.full=false;
   if(this.force===to.item.uid)this.force=null;dirtyLive=true;if(screen==="set")rSet()},
- endFade(){if(!this.fade)return;const f=this.fade;this.fade=null;if(f.from){f.from.stop();f.from.show(false)}f.to.setVol(this.master)},
- jump(i,dur=2){if(!this.items[i])return;delete this.items[i].bad;this.skip.delete(this.items[i].uid);
+ endFade(){if(!this.fade)return;const f=this.fade;this.fade=null;if(f.from){f.from.stop();f.from.show(false)}f.to.setVol(this.M())},
+ jump(i,dur){dur=dur||this.sd();if(!this.items[i])return;delete this.items[i].bad;this.skip.delete(this.items[i].uid);
   if(!this.playing&&!this.paused){this.startAt(i);return}if(this.paused){this.paused=false;this.playing=true}this.endFade();this.trans(i,dur)},
- skipNow(){const n=this.nextIdx();if(n>=0)this.jump(n,Math.min(2.5,Math.max(1,this.cf)));else this.finish()},
+ skipNow(){const n=this.nextIdx();if(n>=0)this.jump(n,this.sd());else this.stopSoft()},
+ sd(){return Math.max(2.5,Math.min(this.cf||3,5))},
+ stopSoft(then){if(!this.playing){this.stop();then&&then();return}this.gain(0,()=>{this.stop();this.g=1;this.gT=1;then&&then()})},
  toggleFull(){if(!this.curItem)return;const orig=this.items.find(x=>x.uid===this.curItem.uid);
   if(!this.full){const d=this.cur.dur();if(d>0){this.curItem.end=d-.3;this.full=true}}else{this.full=false;this.curItem.end=orig?orig.end:this.curItem.end;
   if(this.cur.t()>=this.curItem.end-.5)this.skipNow()}dirtyLive=true},
  removeNext(){const n=this.nextIdx();if(n<0)return;const it=this.items[n];this.skip.add(it.uid);if(this.force===it.uid)this.force=null;
   if(!this.wait||this.wait.idx!==n)this.primeNext(true);dirtyLive=true;toast(`Won't play ${it.title}`,"Undo",()=>{this.skip.delete(it.uid);this.primeNext(true);dirtyLive=true})},
  playNext(i){const it=this.items[i];if(!it)return;this.skip.delete(it.uid);delete it.bad;this.force=it.uid;if(!this.fade&&!this.wait)this.primeNext(true);dirtyLive=true;toast(`Next up: ${it.title}`)},
- pauseToggle(){if(this.paused){this.paused=false;this.playing=true;this.cur&&this.cur.resume();this.fade&&this.fade.from&&this.fade.from.resume();wake(true)}
-  else if(this.playing){this.playing=false;this.paused=true;this.cur&&this.cur.pause();this.fade&&this.fade.from&&this.fade.from.pause();wake(false)}dirtyLive=true},
+ pauseToggle(){if(this.paused){this.paused=false;this.playing=true;this.g=0;this.cur&&this.cur.resume();this.fade&&this.fade.from&&this.fade.from.resume();if(this.cur)this.cur.moved=performance.now();this.gain(1);wake(true)}
+  else if(this.playing&&!this.after){this.gain(0,()=>{this.playing=false;this.paused=true;this.cur&&this.cur.pause();this.fade&&this.fade.from&&this.fade.from.pause();wake(false);dirtyLive=true})}dirtyLive=true},
  stopDecks(){this.fade=null;this.wait=null;if(this.A){this.A.stop();this.B.stop();this.A.show(false);this.B.show(false)}this.cur=null;this.curItem=null},
  stop(){this.playing=false;this.paused=false;this.stopDecks();this.idx=-1;wake(false);dirtyLive=true;rChrome()},
  finish(){this.stop();toast("That's the end of the set 🎉");if(screen==="live")go("set")},
@@ -538,13 +553,21 @@ const E={pl:null,items:[],cf:4,offs:[],tot:0,A:null,B:null,cur:null,curItem:null
   if(this.wait&&this.wait.deck===d){const fresh=this.wait.fresh,dur=this.wait.dur,from=this.wait.idx;this.wait=null;let n=-1;
    for(let i=from+1;i<this.items.length;i++)if(this.ok(i)){n=i;break}if(n<0){fresh?this.stop():null;return}fresh?this.startAt(n):this.trans(n,dur)}
   else if(d===this.cur){const n=this.nextIdx();n>=0?this.trans(n,.5):this.finish()}else this.primeNext(false)},
- tick(){const t0=performance.now(),dt=Math.min(1.5,(t0-this.last)/1000);this.last=t0;if(!this.playing)return;
+ tick(){const t0=performance.now(),dt=Math.min(1.5,(t0-this.last)/1000);this.last=t0;
+  if(this.g!==this.gT){const st=dt/.9;this.g=this.gT>this.g?Math.min(this.gT,this.g+st):Math.max(this.gT,this.g-st);if(this.g===this.gT&&this.after){const f=this.after;this.after=null;f()}}
+  if(!this.playing)return;
+  if(!this.cur&&!this.wait){const n=this.nextIdx();n>=0?this.startAt(n):this.stop();return} // safety net: never sit silent
+  if(this.cur&&this.cur.state==="playing"&&!this.paused){const t=this.cur.t();if(Math.abs(t-(this.cur.lt??-1))>.05){this.cur.lt=t;this.cur.moved=t0}
+   else if(t0-(this.cur.moved||t0)>10000){this.cur.moved=t0;this.cur.onErr("stall");return}}
   if(this.wait){const w=this.wait,st=w.deck.state,waited=(t0-w.since)/1000;if(st==="primed"||(st==="loading"&&waited>(w.fresh?10:4)))this.begin(w)}
-  if(this.fade){const f=this.fade;f.p+=dt;const x=Math.min(1,f.p/f.dur);f.to.setVol(this.master*Math.sin(x*Math.PI/2));if(f.from)f.from.setVol(this.master*Math.cos(x*Math.PI/2));
-   if(x>=1){this.endFade();this.primeNext(false)}}else if(this.cur)this.cur.setVol(this.master);
+  if(this.fade){const f=this.fade;f.p+=dt;const x=Math.min(1,f.p/f.dur);
+   // outgoing song fades out first, incoming fades in on top of its tail: smooth, no silent gap
+   const xo=Math.min(1,x/.65),xi=f.from?Math.max(0,(x-.35)/.65):x;
+   f.to.setVol(this.M()*Math.sin(xi*Math.PI/2));if(f.from)f.from.setVol(this.M()*Math.cos(xo*Math.PI/2));
+   if(x>=1){this.endFade();this.primeNext(false)}}else if(this.cur)this.cur.setVol(this.M());
   if(this.cur&&this.curItem&&!this.wait&&this.cur.state==="playing"){const t=this.cur.t(),it=this.curItem,n=this.nextIdx();
    if(n>=0){const cf=cfB(it,this.items[n],this.cf);if(t>=it.end-cf-.05){this.endFade();this.trans(n,Math.max(.3,cf))}}
-   else{const out=Math.min(3,seg(it)/3);if(t>=it.end-out&&!this.fade)this.cur.setVol(this.master*Math.max(0,(it.end-t)/out));if(t>=it.end-.05)this.finish()}}}};
+   else{const out=Math.min(3,seg(it)/3);if(t>=it.end-out&&!this.fade)this.cur.setVol(this.M()*Math.max(0,(it.end-t)/out));if(t>=it.end-.05)this.finish()}}}};
 
 /* ---------- live screen render ---------- */
 let dirtyLive=true,vidBright=false,liveKey="";
@@ -564,7 +587,7 @@ function liveFrame(){const live=E.playing||E.paused;
   $("nTitle").textContent=nx?nx.title:"End of set";$("nCh").textContent=nx?(nx.channel||""):"";
   const then=[];for(let i=n+1;i<E.items.length&&then.length<3;i++)if(E.ok(i))then.push(E.items[i]);
   $("then").innerHTML=then.length?"Then: "+then.map(x=>`<b>${esc(x.title)}</b>`).join(" · "):"";
-  $("lPI").textContent=E.paused?"▶":"❚❚";$("lFull").textContent=E.full?"Back to cut":"Play full";
+  $("lPI").textContent=E.paused?"▶":"❚❚";$("lFull").textContent=E.paused?"Resume":"Pause";
   const tl=$("lTl").querySelector(".bars");tl.dataset.v=it?it.video_id:"";tl.innerHTML=it?bars(it.video_id,96).map(h=>`<i style="height:${h*100}%"></i>`).join(""):"";
   $("lq").innerHTML=`<div class="D" style="font-size:30px;color:var(--m);margin-bottom:6px">The set</div>`+E.items.map((x,i)=>`<div class="row${x.uid===(it&&it.uid)?" live":""}${E.skip.has(x.uid)||x.bad?" skip":""}" data-i="${i}" title="${esc(x.bad?"Can't play: "+x.bad:"")}">
    <span class="n D">${i+1}</span><img loading="lazy" src="${thumb(x.video_id,"default")}"><div style="min-width:0"><div class="tt D">${esc(x.title)}</div><div class="ch">${esc(x.bad?"Can't play: "+x.bad:x.channel||"")}</div></div>
@@ -578,13 +601,13 @@ function liveFrame(){const live=E.playing||E.paused;
   const el=(E.offs[E.idx]||0)+Math.max(0,Math.min(t,it.end)-it.start);$("lTime").textContent=`${fmt(el)} / ${fmt(E.tot)}`;
   let s;if(E.paused)s="Paused";else if(E.fade&&E.fade.from)s=`Mixing into ${it.title} · ${Math.round(E.fade.p/E.fade.dur*100)}%`;
   else if(E.wait)s=`Cueing ${E.items[E.wait.idx]?E.items[E.wait.idx].title:""}…`;
-  else if(nx){const cf=cfB(it,nx,E.cf);s=E.full?`Playing the full song · then ${nx.title}`:`Out at ${fmt(it.end-cf)} · blending into ${nx.title}`}else s=`Last song · ends at ${fmt(it.end)}`;
+  else if(nx){const cf=cfB(it,nx,E.cf);s=`Out at ${fmt(it.end-cf)} · fading into ${nx.title}`}else s=`Last song · ends at ${fmt(it.end)}`;
   $("lStat").textContent=s}else $("lStat").textContent="Cueing the first song…"}
 $("lq").onclick=e=>{const b=e.target.closest("button[data-a]"),r=e.target.closest(".row");if(!r)return;const i=+r.dataset.i;
  if(b&&b.dataset.a==="next")E.playNext(i);else if(b)E.jump(i);else if(E.skip.has(E.items[i].uid)){E.skip.delete(E.items[i].uid);E.primeNext(true);dirtyLive=true}};
-$("lSkip").onclick=()=>E.skipNow();$("lFull").onclick=()=>E.toggleFull();$("lRm").onclick=()=>E.removeNext();
+$("lSkip").onclick=()=>E.skipNow();$("lFull").onclick=()=>E.pauseToggle();$("lRm").onclick=()=>E.removeNext();
 $("lPn").onclick=()=>{$("lq").scrollIntoView({behavior:"smooth"});toast("Tap “Next” on any song below")};
-$("lPause").onclick=()=>E.pauseToggle();$("lExit").onclick=()=>{E.stop();go("set")};
+$("lPause").onclick=()=>E.pauseToggle();$("lExit").onclick=()=>E.stopSoft(()=>go("set"));
 $("lSet").onclick=()=>go("set",E.pl&&E.pl.id);$("lVid").onclick=()=>{vidBright=!vidBright;rChrome()};
 $("vol").oninput=e=>E.master=+e.target.value;
 $("mP").onclick=()=>E.pauseToggle();$("mN").onclick=()=>E.skipNow();$("mO").onclick=()=>go("live");

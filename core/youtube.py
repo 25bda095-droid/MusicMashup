@@ -221,7 +221,7 @@ def _meta(video_id: str) -> tuple:
         return (None, (), ())
 
 
-def auto_cut(video_id: str, duration: float | None, length: float = 75, use_replayed: bool = True) -> dict:
+def auto_cut(video_id: str, duration: float | None, length: float = 60, use_replayed: bool = True) -> dict:
     """Pick the best part of a song: most-replayed peak → hook chapter → estimate."""
     length = max(20.0, min(240.0, float(length or 75)))
     dur, heat, chap = _meta(video_id) if use_replayed or not duration else (None, (), ())
@@ -230,7 +230,8 @@ def auto_cut(video_id: str, duration: float | None, length: float = 75, use_repl
     if dur <= 0:
         return dict(out, start=0.0, end=length, source="estimate")
     if dur <= length + 15:  # short song: play almost all of it
-        return dict(out, start=round(min(8.0, dur * 0.05)), end=round(max(dur - 2, 5)), source="estimate")
+        st_ = round(min(8.0, dur * 0.05))
+        return dict(out, start=st_, end=round(min(dur - 2, st_ + length)), source="estimate")
 
     if use_replayed and heat:
         # Score every 1 s window of `length` by summed replay value, ignoring the
