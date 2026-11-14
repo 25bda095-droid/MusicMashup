@@ -35,7 +35,9 @@ REFRESH_EVERY = 60    # seconds between checks for changes made elsewhere
 
 
 class StorageError(RuntimeError):
-    pass
+    def __init__(self, msg, wait=None):
+        super().__init__(msg)
+        self.wait = wait  # seconds GitHub asked us to wait, if it said
 
 
 def _atomic_write(path: Path, data: dict) -> None:
@@ -104,7 +106,13 @@ class GistStorage:
         except requests.RequestException as e:
             raise StorageError(str(e)) from e
         if not r.ok:
-            raise StorageError(f"GitHub Gist error {r.status_code}: {r.text[:160]}")
+            wait = None
+            if r.headers.get("Retry-After", "").isdigit():
+                wait = int(r.headers["Retry-After"])
+            elif r.headers.get("x-ratelimit-remaining") == "0" and r.headers.get("x-ratelimit-reset", "").isdigit():
+                wait = max(30, int(r.headers["x-ratelimit-reset"]) - int(time.time()))
+            msg = "GitHub is limiting writes for a while" if r.status_code in (403, 429) else f"GitHub error {r.status_code}"
+            raise StorageError(msg, wait)
 
 
 def _normalise(data: dict) -> dict:
@@ -135,7 +143,9 @@ class SharedStore:
         self.last_flush = 0.0
         self.retry_at = 0.0
         self.error = None          # last load/save problem, shown in the UI
+        self.fails = 0
         self._load(initial=True)
+        self._recover_mirror()
         threading.Thread(target=self._flusher, daemon=True).start()
         atexit.register(self.flush)
 
@@ -156,6 +166,16 @@ class SharedStore:
                     self.data = _normalise(json.loads(self.mirror.read_text("utf-8")))
                 else:
                     raise
+
+    def _recover_mirror(self):
+        """After a restart, unsaved changes from before are still in the mirror file: keep them."""
+        try:
+            m = _normalise(json.loads(self.mirror.read_text("utf-8")))
+        except Exception:
+            return
+        newest = lambda d: max((p.get("updated", 0) for p in d["playlists"].values()), default=0)
+        if self.data is None or newest(m) > newest(self.data) + 1:
+            self.data, self.dirty = m, True
 
     def get(self, force=False) -> dict:
         with self.lock:
@@ -190,9 +210,11 @@ class SharedStore:
             self.b.save(snapshot)
         except StorageError as e:
             with self.lock:
-                self.error = f"Saving to GitHub is delayed ({e}). Your changes are kept and will be retried."
-                backoff = 120 if ("403" in str(e) or "429" in str(e)) else 30
+                self.fails += 1
+                backoff = e.wait or min(900, 60 * 2 ** (self.fails - 1))  # 1, 2, 4, 8, 15 min
                 self.retry_at = time.time() + backoff
+                self.error = (f"{e}. Your changes are kept here and will be saved automatically "
+                              f"(next try in about {max(1, round(backoff / 60))} min). Use Export for an extra backup.")
             return False
         with self.lock:
             if self.data == snapshot:
@@ -201,6 +223,7 @@ class SharedStore:
             self.etag = None  # our own write changed the gist; next check fetches it once
             self.checked = time.time()
             self.error = None
+            self.fails = 0
         return True
 
     def _flusher(self):
