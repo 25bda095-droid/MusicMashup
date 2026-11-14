@@ -195,3 +195,67 @@ def playlist(url: str) -> tuple[str | None, list[dict], int, str | None]:
         items.append({"id": e["id"], "title": e.get("title") or e["id"],
                       "channel": e.get("channel") or e.get("uploader") or "", "duration": float(e["duration"])})
     return r.get("title"), items, skipped, None
+
+
+# ---------------------------------------------------------------- auto timing
+from functools import lru_cache
+
+_HOOK = re.compile(r"chorus|hook|drop|refrain|main part|best part", re.I)
+
+
+@lru_cache(maxsize=4096)
+def _meta(video_id: str) -> tuple:
+    """(duration, heatmap, chapters) from YouTube via yt-dlp; empty on failure."""
+    try:
+        import yt_dlp
+
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True,
+                               "socket_timeout": 15}) as ydl:
+            r = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False, process=False)
+        heat = tuple((float(h["start_time"]), float(h["end_time"]), float(h["value"]))
+                     for h in (r.get("heatmap") or []))
+        chap = tuple((float(c.get("start_time") or 0), float(c.get("end_time") or 0), str(c.get("title") or ""))
+                     for c in (r.get("chapters") or []))
+        return (r.get("duration"), heat, chap)
+    except Exception:
+        return (None, (), ())
+
+
+def auto_cut(video_id: str, duration: float | None, length: float = 75, use_replayed: bool = True) -> dict:
+    """Pick the best part of a song: most-replayed peak → hook chapter → estimate."""
+    length = max(20.0, min(240.0, float(length or 75)))
+    dur, heat, chap = _meta(video_id) if use_replayed or not duration else (None, (), ())
+    dur = float(dur or duration or 0)
+    out = {"duration": dur or None}
+    if dur <= 0:
+        return dict(out, start=0.0, end=length, source="estimate")
+    if dur <= length + 15:  # short song: play almost all of it
+        return dict(out, start=round(min(8.0, dur * 0.05)), end=round(max(dur - 2, 5)), source="estimate")
+
+    if use_replayed and heat:
+        # Score every 1 s window of `length` by summed replay value, ignoring the
+        # first 10% (people restart songs) and the last 5%.
+        def val(t):
+            for s, e, v in heat:
+                if s <= t < e:
+                    return v
+            return 0.0
+        per_sec = [val(t + 0.5) for t in range(int(dur))]
+        lo, hi = int(dur * 0.10), int(dur * 0.95 - length)
+        if hi > lo:
+            win = sum(per_sec[lo:lo + int(length)])
+            best, best_s = win, lo
+            for s in range(lo + 1, hi + 1):
+                win += per_sec[s + int(length) - 1] - per_sec[s - 1]
+                if win > best:
+                    best, best_s = win, s
+            start = max(0, best_s - 4)  # a little build-up before the hook
+            return dict(out, start=float(start), end=float(min(dur - 1, start + length)), source="replayed")
+
+    for s, e, title in chap:
+        if _HOOK.search(title):
+            start = max(0.0, s - 3)
+            return dict(out, start=round(start), end=round(min(dur - 1, start + length)), source="chapter")
+
+    start = round(dur * 0.22)
+    return dict(out, start=float(start), end=float(min(dur - 3, start + length)), source="estimate")

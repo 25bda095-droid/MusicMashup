@@ -51,6 +51,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
 .mini{height:6px;border-radius:9px;background:#1d1d1d;position:relative;overflow:hidden}.mini i{position:absolute;top:0;bottom:0;background:var(--a);border-radius:9px}
 .ib{width:40px;height:40px;border:2px solid var(--l2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--m)}
 .ib:hover{border-color:var(--t);color:var(--t)}
+.ab{display:inline-block;margin-left:8px;font:13px "Bebas Neue",sans-serif;letter-spacing:.04em;color:var(--a);border:1px solid var(--ad);border-radius:6px;padding:1px 6px}
 .row.live .tt,.row.live .n{color:var(--a)}
 .row.drag{opacity:.4}.ph{height:3px;background:var(--a);border-radius:3px}
 .empty{border:2px dashed var(--l2);border-radius:20px;padding:50px 24px;text-align:center}
@@ -205,10 +206,10 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
     <div id="rS"><div class="hint">Find a song, then pick the part you want. You can add the same song more than once with different parts.</div></div></div>
    <div id="tL" style="display:none"><form id="fL" style="display:flex;gap:8px"><input id="qL" placeholder="https://youtu.be/…"><button class="btn acc D" style="flex:none">Open</button></form>
     <div class="hint">Paste any YouTube or YouTube Music link. A <b>?t=</b> in the link becomes the start time.</div><div class="err" id="eL"></div></div>
-   <div id="tB" style="display:none"><textarea id="qB" rows="9" placeholder="One song per line:  link  start  end&#10;https://youtu.be/Umqb9KENgmk 0:45 1:50&#10;https://youtu.be/Umqb9KENgmk 3:10 4:00"></textarea>
-    <div class="erow"><button class="btn acc D" id="bB">Add all</button><span class="hint" id="hB">Times like 1:05, 65 or 1m05s.</span></div><div class="err" id="eB"></div></div>
+   <div id="tB" style="display:none"><textarea id="qB" rows="9" placeholder="One song per line:  link  [start  end]  (no times = auto best part)&#10;https://youtu.be/Umqb9KENgmk 0:45 1:50&#10;https://youtu.be/Umqb9KENgmk 3:10 4:00"></textarea>
+    <div class="erow"><button class="btn acc D" id="bB">Add all</button><span class="hint" id="hB">Leave out times for auto timing. Times like 1:05, 65 or 1m05s.</span></div><div class="err" id="eB"></div></div>
    <div id="tP" style="display:none"><form id="fP" style="display:flex;gap:8px"><input id="qP" placeholder="https://youtube.com/playlist?list=…"><button class="btn acc D" style="flex:none">Import</button></form>
-    <div class="hint">Every song in the YouTube playlist is added as a whole song. Tap any song later to trim it to its best part.</div><div class="err" id="eP"></div></div>
+    <div class="hint">Every song is added with its best part picked automatically (from YouTube's “Most replayed” data). Tap any song to change it.</div><div class="err" id="eP"></div></div>
   </div></div></div>
 
  <!-- clip editor -->
@@ -218,7 +219,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
   <div style="margin-top:14px"><input id="edT" style="font-weight:600"></div>
   <div class="tl" id="eTl" style="margin-top:34px"><div class="bars"></div><div class="mk" id="eIn"><b></b></div><div class="mk" id="eOut"><b></b></div><div class="ph2" id="ePh"></div></div>
   <div class="erow" style="justify-content:space-between;margin-top:6px">
-   <div style="display:flex;gap:8px"><button class="btn sm D" id="ePP">▶ Play</button><button class="btn sm acc D" id="ePC">▶ Play clip</button></div>
+   <div style="display:flex;gap:8px"><button class="btn sm D" id="ePP">▶ Play</button><button class="btn sm acc D" id="ePC">▶ Play clip</button><button class="btn sm D" id="eAuto">✨ Auto</button></div>
    <span class="D" style="font-size:24px;color:var(--m)" id="eNow">0:00 / 0:00</span></div>
   <div class="io">
    <div class="box"><div class="lab D">In</div><div class="ctl"><button class="ib" data-n="in,-1">−1</button><input id="eInT"><button class="ib" data-n="in,1">+1</button><button class="ib D acc" id="eSetIn" style="font-size:18px">Set at now</button></div></div>
@@ -308,7 +309,7 @@ function rLib(){const c=$("cards");const pls=sorted();
   <div class="meta">${p.items.length} songs · ${fmt(setTotal(p))} ${live?' · <span class="tag D"><span class="dot"></span>Live</span>':""}</div></div>
   ${vids.length?`<div class="thumbs">${vids.map(v=>`<img loading="lazy" src="${thumb(v,"default")}">`).join("")}</div>`:""}</button>`}).join("")+
   `<button class="card new" id="cNew"><div class="D">＋ New set</div><div class="meta">Start from scratch</div></button>`+
-  `<button class="card new" id="cYT"><div class="D">＋ Import YouTube playlist</div><div class="meta">Paste a playlist link, get a ready set</div></button>`;
+  `<button class="card new" id="cYT"><div class="D">＋ Import YouTube playlist</div><div class="meta">Paste a playlist link; the best part of each song is picked for you</div></button>`;
  c.querySelectorAll(".card[data-id]").forEach(b=>b.onclick=()=>go("set",b.dataset.id));$("cNew").onclick=newSet;
  $("cYT").onclick=()=>dialog("Import YouTube playlist",`<input id="dlgIn" placeholder="https://youtube.com/playlist?list=…">`,[["Cancel"],["Import",()=>ytImport($("dlgIn").value,null),1]]);
  $("libNote").innerHTML=`Plays through YouTube. Some videos may show an ad unless you have YouTube Premium. Best on a laptop plugged into a speaker.<br>`+
@@ -322,12 +323,12 @@ function newSet(){dialog("New set",`<input id="dlgIn" placeholder="e.g. Saturday
 function rSet(){const p=P(S.open);if(!p){go("lib");return}
  if(document.activeElement!==$("setName"))$("setName").value=p.name;
  $("setSum").textContent=`${p.items.length} songs · ${fmt(setTotal(p))} total with the cuts`;
- $("bCf").textContent=`Crossfade ${p.crossfade}s`;
+ $("bCf").textContent=`Mix · ${p.crossfade}s fade · ${p.clip_len||75}s clips`;
  const l=$("list");const liveUid=E.pl&&E.pl.id===p.id&&E.curItem?E.curItem.uid:null;
  if(!p.items.length){l.innerHTML=`<div class="empty"><div class="D">Nothing here yet</div><p class="sub">Search YouTube or paste links, then pick the best part of each song.</p><button class="btn acc D" id="eAddF">＋ Add your first song</button></div>`;$("eAddF").onclick=openAdd;return}
  l.innerHTML=p.items.map((it,i)=>{const d=it.duration||Math.max(it.end,1);
   return `<div class="row${it.uid===liveUid?" live":""}" data-i="${i}"><span class="h">⋮⋮</span><span class="n D">${i+1}</span><img loading="lazy" src="${thumb(it.video_id,"default")}">
-  <div style="min-width:0"><div class="tt D">${esc(it.title)}</div><div class="ch">${esc(it.channel||"")}</div></div>
+  <div style="min-width:0"><div class="tt D">${esc(it.title)}</div><div class="ch">${esc(it.channel||"")}${it.auto?`<span class="ab">Auto · ${SRC[it.auto]}</span>`:""}</div></div>
   <div class="mini"><i style="left:${it.start/d*100}%;width:${Math.max(2,seg(it)/d*100)}%"></i></div>
   <span class="rg D">${fmt(it.start)}–${fmt(it.end)}</span><button class="ib dup" title="Duplicate">⧉</button><button class="ib del" title="Remove">✕</button></div>`}).join("")}
 $("list").addEventListener("click",e=>{const r=e.target.closest(".row");if(!r||e.target.closest(".h"))return;const p=P(S.open),i=+r.dataset.i,it=p.items[i];
@@ -337,8 +338,13 @@ $("list").addEventListener("click",e=>{const r=e.target.closest(".row");if(!r||e
 $("setName").addEventListener("input",()=>{const p=P(S.open);p.name=$("setName").value.trim()||"Untitled set";save(p)});
 $("bBack").onclick=()=>go("lib");$("bAdd").onclick=openAdd;
 $("bShuf").onclick=()=>{const p=P(S.open);const a=p.items;for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}save(p);render()};
-$("bCf").onclick=()=>{const p=P(S.open);dialog("Crossfade",`<p class="sub" style="margin:0 0 10px">How long one song fades out while the next fades in.</p><input type="range" id="dlgR" min="0" max="12" step="0.5" value="${p.crossfade}" style="accent-color:var(--a);padding:0;border:0"><div class="D" id="dlgV" style="font-size:44px;margin-top:6px">${p.crossfade}s</div>`,[["Done",()=>{p.crossfade=+$("dlgR").value;save(p);render()},1]]);$("dlgR").oninput=e=>$("dlgV").textContent=e.target.value+"s"};
-$("bMore").onclick=()=>{const p=P(S.open);dialog(p.name,"",[["Duplicate set",()=>{const c=JSON.parse(JSON.stringify(p));c.id=uid();c.name+=" (copy)";c.items.forEach(i=>i.uid=uid());S.data.playlists[c.id]=c;(S.created=S.created||{})[c.id]=1;save(c,true);go("set",c.id)}],
+$("bCf").onclick=()=>{const p=P(S.open);const L=p.clip_len||75;dialog("Mix settings",`<p class="sub" style="margin:0 0 6px">Crossfade: how long one song fades out while the next fades in.</p><input type="range" id="dlgR" min="0" max="12" step="0.5" value="${p.crossfade}" style="accent-color:var(--a);padding:0;border:0"><div class="D" id="dlgV" style="font-size:40px;margin:4px 0 14px">${p.crossfade}s</div>
+ <p class="sub" style="margin:0 0 6px">Auto clip length</p><div style="display:flex;gap:8px;flex-wrap:wrap" id="dlgL">${[45,60,75,90].map(x=>`<button class="btn sm${x==L?" acc":""}" data-l="${x}">${x}s</button>`).join("")}</div>
+ <label style="display:flex;gap:10px;align-items:center;margin-top:16px;color:var(--m)"><input type="checkbox" id="dlgC" style="width:auto;accent-color:var(--a)" ${p.replayed!==false?"checked":""}> Snap to YouTube's “Most replayed” peak</label>`,
+ [["Done",()=>{const nl=+($("dlgL").querySelector(".acc")||{}).dataset?.l||L;const ch=nl!==L||$("dlgC").checked!==(p.replayed!==false);p.crossfade=+$("dlgR").value;p.clip_len=nl;p.replayed=$("dlgC").checked;save(p);render();
+  const au=p.items.filter(i=>i.auto).map(i=>i.uid);if(ch&&au.length)autoTime(p.id,au)},1]]);
+ $("dlgL").onclick=e=>{const b=e.target.closest("button");if(!b)return;$("dlgL").querySelectorAll("button").forEach(x=>x.classList.toggle("acc",x===b))};$("dlgR").oninput=e=>$("dlgV").textContent=e.target.value+"s"};
+$("bMore").onclick=()=>{const p=P(S.open);dialog(p.name,"",[["Find best parts for auto clips",()=>{const au=p.items.filter(i=>i.auto).map(i=>i.uid);au.length?autoTime(p.id,au):toast("No auto clips. Clips you edited by hand are kept as they are")}],["Duplicate set",()=>{const c=JSON.parse(JSON.stringify(p));c.id=uid();c.name+=" (copy)";c.items.forEach(i=>i.uid=uid());S.data.playlists[c.id]=c;(S.created=S.created||{})[c.id]=1;save(c,true);go("set",c.id)}],
  ["Export set",()=>download(p.name,{version:1,playlists:{[p.id]:p}})],["Delete set",()=>dialog("Delete this set?",`<p class="sub" style="margin:0">“${esc(p.name)}” will be gone for good.</p>`,[["Cancel"],["Delete",async()=>{if(E.pl&&E.pl.id===p.id)E.stop();delete S.data.playlists[p.id];S.dirty[p.id]=1;go("lib");const r=await B.call("delete",{pid:p.id});delete S.dirty[p.id];if(!r.ok)toast("Couldn't delete: "+r.error)},1]])]])};
 $("bPlaySet").onclick=()=>{const p=P(S.open);if((E.playing||E.paused)&&E.pl&&E.pl.id===p.id){go("live");return}E.playSet(p);go("live")};
 /* drag to reorder */
@@ -364,33 +370,48 @@ $("fS").onsubmit=async e=>{e.preventDefault();const q=$("qS").value.trim();if(!q
  const r=await B.call("search",{q});lastRes=r.results||[];
  if(!lastRes.length){$("rS").innerHTML=`<div class="err">${esc(r.error||"No results")}. Try other words, or paste the link instead.</div>`;return}
  $("rS").innerHTML=lastRes.map((x,i)=>`<div class="res"><img loading="lazy" src="${thumb(x.id)}"><div style="min-width:0"><div class="tt">${esc(x.title)}</div><div class="ch">${esc(x.channel)}${x.duration?" · "+fmt(x.duration):""}</div></div>
-  <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm acc D" data-pick="${i}">Pick part</button>${x.duration?`<button class="btn sm D" data-whole="${i}">Whole song</button>`:""}</div></div>`).join("")};
-$("rS").onclick=e=>{const b=e.target.closest("button");if(!b)return;const x=lastRes[+(b.dataset.pick??b.dataset.whole)];if(!x)return;
+  <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm acc D" data-pick="${i}">Pick part</button><button class="btn sm D" data-auto="${i}">＋ Add</button></div></div>`).join("")};
+$("rS").onclick=e=>{const b=e.target.closest("button");if(!b)return;const x=lastRes[+(b.dataset.pick??b.dataset.auto)];if(!x)return;
  const it={uid:uid(),video_id:x.id,title:x.title,channel:x.channel,duration:x.duration||null,start:0,end:x.duration||0};
- if(b.dataset.whole!=null){addItems([it]);toast(`Added ${x.title}`)}else openEditor(it,{pid:S.open})};
+ if(b.dataset.auto!=null){const p=P(S.open);Object.assign(it,est(x.duration,p.clip_len));addItems([it]);b.textContent="✓ Added";autoTime(p.id,[it.uid])}else openEditor(it,{pid:S.open})};
 $("fL").onsubmit=e=>{e.preventDefault();const t=$("qL").value,v=vidOf(t);$("eL").textContent="";if(!v){$("eL").textContent="That doesn't look like a YouTube link.";return}
  const st=tOf(t);openEditor({uid:uid(),video_id:v,title:"",channel:"",duration:null,start:isNaN(st)?0:st,end:0},{pid:S.open})};
 $("bB").onclick=async()=>{const lines=$("qB").value.split(/\n/);const rows=[],errs=[];
  lines.forEach((ln,n)=>{ln=ln.trim();if(!ln||ln[0]==="#")return;const parts=ln.split(/[\s|,;]+/),v=vidOf(parts[0]);if(!v){errs.push(`Line ${n+1}: not a YouTube link`);return}
-  const ts=parts.slice(1).map(parseTime).filter(x=>!isNaN(x));if(ts.length<2){errs.push(`Line ${n+1}: needs a start and an end time`);return}
+  const ts=parts.slice(1).map(parseTime).filter(x=>!isNaN(x));if(!ts.length){rows.push({v,auto:1});return}if(ts.length<2){errs.push(`Line ${n+1}: add an end time too (or no times for auto)`);return}
   if(ts[1]-ts[0]<3){errs.push(`Line ${n+1}: end must be at least 3s after start`);return}rows.push({v,s:ts[0],e:ts[1]})});
  $("eB").textContent=errs.join("\n");if(!rows.length)return;$("bB").disabled=true;$("hB").textContent=`Looking up ${rows.length} songs…`;
  const r=await B.call("titles",{ids:rows.map(x=>x.v)});const T=r.titles||{};
- addItems(rows.map(x=>({uid:uid(),video_id:x.v,title:(T[x.v]||{}).title||x.v,channel:(T[x.v]||{}).channel||"",duration:null,start:x.s,end:x.e})));
- $("bB").disabled=false;$("hB").textContent="Times like 1:05, 65 or 1m05s.";if(!errs.length)$("qB").value="";toast(`Added ${rows.length} clips`)};
+ const its=rows.map(x=>Object.assign({uid:uid(),video_id:x.v,title:(T[x.v]||{}).title||x.v,channel:(T[x.v]||{}).channel||"",duration:null},x.auto?est(0,P(S.open).clip_len):{start:x.s,end:x.e}));
+ addItems(its);const au=its.filter(i=>i.auto).map(i=>i.uid);if(au.length)autoTime(S.open,au);
+ $("bB").disabled=false;$("hB").textContent="Leave out times for auto timing. Times like 1:05, 65 or 1m05s.";if(!errs.length)$("qB").value="";toast(`Added ${rows.length} clips`)};
 async function ytImport(url,pid){url=(url||"").trim();if(!/[?&]list=/.test(url)){toast("Paste a link that contains list=…");return}
  toast("Importing playlist… this can take a few seconds");const r=await B.call("ytplaylist",{url});
  if(!r.ok||!r.items||!r.items.length){toast("Import failed: "+(r.error||"no playable songs found"));return}
- const its=r.items.map(x=>({uid:uid(),video_id:x.id,title:x.title||x.id,channel:x.channel||"",duration:x.duration,start:0,end:x.duration}));
+ const its=r.items.map(x=>Object.assign({uid:uid(),video_id:x.id,title:x.title||x.id,channel:x.channel||"",duration:x.duration},est(x.duration,75)));
  let p=pid&&P(pid);if(!p){p={id:uid(),name:(r.title||"YouTube playlist").slice(0,80),crossfade:4,items:[],created:now(),updated:now()};S.data.playlists[p.id]=p;(S.created=S.created||{})[p.id]=1}
- p.items.push(...its);save(p,true);go("set",p.id);toast(`Imported ${its.length} songs${r.skipped?` (${r.skipped} unavailable skipped)`:""}`)}
+ p.items.push(...its);save(p,true);go("set",p.id);autoTime(p.id,its.map(i=>i.uid));toast(`Imported ${its.length} songs${r.skipped?` (${r.skipped} unavailable skipped)`:""}`)}
 $("fP").onsubmit=e=>{e.preventDefault();ytImport($("qP").value,S.open);$("ovAdd").classList.remove("on")};
+const SRC={replayed:"Most replayed",chapter:"Chapter",estimate:"Estimate"};
+function est(d,L){L=+L||75;d=+d||0;if(!d)return{start:30,end:30+L,auto:"estimate"};if(d<=L+15)return{start:Math.round(Math.min(8,d*.05)),end:Math.round(Math.max(d-2,5)),auto:"estimate"};
+ const s=Math.round(d*.22);return{start:s,end:Math.min(d-3,s+L),auto:"estimate"}}
+let autoBusy=0;
+async function autoTime(pid,uids){const p0=P(pid);if(!p0||!uids.length)return;autoBusy++;const big=uids.length>3;let done=0;
+ for(let k=0;k<uids.length;k+=8){const p=P(pid);if(!p)break;const batch=p.items.filter(i=>uids.slice(k,k+8).includes(i.uid)&&i.auto);if(!batch.length)continue;
+  if(big)toast(`Finding best parts… ${done}/${uids.length}`);
+  const r=await B.call("autocut",{videos:batch.map(i=>({id:i.video_id,duration:i.duration})),length:p.clip_len||75,replayed:p.replayed!==false});
+  const q=P(pid);if(!q||!r.cuts)continue;let ch=0;
+  q.items.forEach(i=>{const c=r.cuts[i.video_id];if(c&&i.auto&&batch.some(b=>b.uid===i.uid)){
+   const dupes=q.items.filter(x=>x.video_id===i.video_id&&x.auto);if(dupes.length>1&&dupes[0].uid!==i.uid)return; // keep extra copies where they are
+   i.start=c.start;i.end=c.end;i.duration=c.duration||i.duration;i.auto=c.source;ch=1}});
+  done+=batch.length;if(ch){save(q);if(E.pl&&E.pl.id===pid)E.receive(q);render()}}
+ autoBusy--;if(big)toast(`Best parts picked for ${uids.length} songs ✨`)}
 function addItems(its){const p=P(S.open);p.items.push(...its);save(p);render()}
 
 /* ---------- clip editor ---------- */
 let ed=null,PV=null,pvReady=false,pvTimer=null;
 const NB=110;
-function openEditor(it,ctx){ed={it,ctx,dur:it.duration||0,bars:bars(it.video_id,NB),clipStop:null};$("ovEd").classList.add("on");
+function openEditor(it,ctx){ed={orig:[it.start,it.end],autoSet:null,it,ctx,dur:it.duration||0,bars:bars(it.video_id,NB),clipStop:null};$("ovEd").classList.add("on");
  $("edH").textContent=ctx.uid?"Edit clip":"Pick the part";$("eDel").style.display=ctx.uid?"":"none";$("eAdd2").style.display=ctx.uid?"none":"";
  $("eAdd").textContent=ctx.uid?"Save clip":"Add to set";$("edT").value=it.title||"";$("eErr").textContent="";
  const go_=()=>{PV.loadVideoById({videoId:it.video_id,startSeconds:it.start||0});setTimeout(()=>{try{PV.pauseVideo()}catch(e){}},50);
@@ -411,7 +432,7 @@ function edRender(){if(!ed)return;const{it,dur}=ed;const D=dur||Math.max(it.end,
  $("eIn").querySelector("b").textContent="In "+fmt(it.start);$("eOut").querySelector("b").textContent="Out "+fmt(it.end);
  if(document.activeElement!==$("eInT"))$("eInT").value=fmt(it.start);if(document.activeElement!==$("eOutT"))$("eOutT").value=fmt(it.end);
  $("eLen").textContent=it.end>it.start?`Clip length ${fmt(it.end-it.start)}`:""}
-function setIO(which,v){if(!ed||isNaN(v))return;const D=ed.dur||1e9;v=Math.max(0,Math.min(D,v));
+function setIO(which,v){if(!ed||isNaN(v))return;ed.autoSet=null;const D=ed.dur||1e9;v=Math.max(0,Math.min(D,v));
  if(which==="in"){ed.it.start=Math.min(v,Math.max(0,ed.it.end-1))}else{ed.it.end=Math.max(v,ed.it.start+1)}edRender()}
 const tlDrag=(el,onPos)=>{let on=false;const pos=e=>{const r=el.getBoundingClientRect();return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))};
  el.addEventListener("pointerdown",e=>{on=true;el.setPointerCapture(e.pointerId);onPos(pos(e),e,true)});
@@ -426,7 +447,14 @@ $("eSetIn").onclick=()=>setIO("in",Math.round(PV.getCurrentTime()));$("eSetOut")
 $("ePP").onclick=()=>{ed.clipStop=null;PV.getPlayerState()===1?PV.pauseVideo():PV.playVideo()};
 $("ePC").onclick=()=>{ed.clipStop=ed.it.end;PV.seekTo(ed.it.start,true);PV.playVideo()};
 $("eX").onclick=closeEditor;
-function edCommit(again){const it=ed.it;it.title=$("edT").value.trim()||it.title||it.video_id;it.duration=ed.dur||it.duration||null;
+$("eAuto").onclick=async()=>{if(!ed)return;const p=P(ed.ctx.pid)||{};$("eAuto").textContent="Finding…";
+ const r=await B.call("autocut",{videos:[{id:ed.it.video_id,duration:ed.dur}],length:p.clip_len||75,replayed:p.replayed!==false});$("eAuto").textContent="✨ Auto";
+ const c=r.cuts&&r.cuts[ed.it.video_id];if(!c||!ed)return;ed.it.start=c.start;ed.it.end=c.end;ed.autoSet=c.source;edRender();try{PV.seekTo(c.start,true)}catch(e){}
+ $("eLen").textContent+=` · picked from ${SRC[c.source]}`};
+function edCommit(again){const it=ed.it;
+ if(ed.autoSet&&ed.autoAt&&ed.autoAt[0]===it.start&&ed.autoAt[1]===it.end)it.auto=ed.autoSet;
+ else if(ed.autoSet)it.auto=ed.autoSet;
+ if(!ed.autoSet&&(it.start!==ed.orig[0]||it.end!==ed.orig[1]))it.auto=null;it.title=$("edT").value.trim()||it.title||it.video_id;it.duration=ed.dur||it.duration||null;
  if(!(it.end-it.start>=3)){$("eErr").textContent="Clip must be at least 3 seconds. Set the OUT point after the IN point.";return}
  const p=P(ed.ctx.pid);if(!p){closeEditor();return}
  if(ed.ctx.uid){const i=p.items.findIndex(x=>x.uid===ed.ctx.uid);if(i>=0)p.items[i]=Object.assign({},it,{uid:ed.ctx.uid})}else p.items.push(Object.assign({},it,{uid:uid()}));

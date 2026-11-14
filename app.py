@@ -103,10 +103,13 @@ def clean_playlist(p):
         dur = _num(i.get("duration"), 0) or None
         items.append({"uid": str(i.get("uid") or new_uid())[:24], "video_id": vid,
                       "title": str(i.get("title") or vid)[:200], "channel": str(i.get("channel") or "")[:120],
-                      "start": round(s, 2), "end": round(e, 2), "duration": round(dur, 2) if dur else None})
+                      "start": round(s, 2), "end": round(e, 2), "duration": round(dur, 2) if dur else None,
+                      "auto": i.get("auto") if i.get("auto") in ("replayed", "chapter", "estimate") else None})
     return {"id": str(p.get("id") or new_uid())[:24],
             "name": (str(p.get("name") or "").strip() or "Untitled set")[:80],
             "crossfade": max(0.0, min(12.0, _num(p.get("crossfade"), 4.0))),
+            "clip_len": max(20.0, min(240.0, _num(p.get("clip_len"), 75.0))),
+            "replayed": p.get("replayed") is not False,
             "items": items, "created": _num(p.get("created"), time.time())}
 
 
@@ -148,6 +151,13 @@ def handle(ev):
         err = None
     elif kind == "ytplaylist":
         r["title"], r["items"], r["skipped"], err = youtube.playlist(str(pl_.get("url", ""))[:500])
+    elif kind == "autocut":
+        vids = [v for v in (pl_.get("videos") or [])[:24] if parse_video_id(str(v.get("id", "")))]
+        ln, rep = _num(pl_.get("length"), 75), bool(pl_.get("replayed", True))
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            cuts = ex.map(lambda v: youtube.auto_cut(v["id"], _num(v.get("duration"), 0) or None, ln, rep), vids)
+        r["cuts"] = {v["id"]: c for v, c in zip(vids, cuts)}
+        err = None
     elif kind == "sync":
         load_data(force=True)
         err = None

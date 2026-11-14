@@ -5,6 +5,7 @@ and the player blends every clip into the next with an automatic crossfade.
 
 - Two decks: the next clip preloads silently, so there are no gaps
 - Add songs by search, link, many links at once, or a whole YouTube playlist
+- Auto timing: the best part of each song is picked from YouTube's "Most replayed" data, a chorus/hook chapter, or an estimate (shown with an AUTO badge)
 - Visual IN/OUT picker with preview; the same song can be used several times
 - Live screen: Skip, Play full, Skip next, Play next, set timer; drag to reorder
 - No login: everyone who opens the site sees and plays the saved sets
