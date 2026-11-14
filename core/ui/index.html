@@ -159,6 +159,8 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
    <button class="btn" id="bMore">⋯</button>
   </div>
   <div id="needT"></div>
+  <div style="position:relative;margin:0 0 10px"><input id="setQ" placeholder="Search this set… (title or singer)" autocomplete="off" style="padding-left:40px"><span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--d)">⌕</span></div>
+  <div class="hint" id="setQn"></div>
   <div id="list"></div>
  </div></div>
  <div class="dock" id="dock"><div class="in"><button class="big D" id="bPlaySet">Play the set ▶</button></div></div>
@@ -228,6 +230,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
    <div class="box"><div class="lab D">In</div><div class="ctl"><button class="ib" data-n="in,-1">−1</button><input id="eInT"><button class="ib" data-n="in,1">+1</button><button class="ib D acc" id="eSetIn" style="font-size:18px">Set at now</button></div></div>
    <div class="box"><div class="lab D">Out</div><div class="ctl"><button class="ib" data-n="out,-1">−1</button><input id="eOutT"><button class="ib" data-n="out,1">+1</button><button class="ib D" id="eSetOut" style="font-size:18px">Set at now</button></div></div>
   </div>
+  <div class="hint" id="eDup" style="color:var(--a)"></div>
   <div class="hint" id="eLen"></div><div class="err" id="eErr"></div>
   <div class="erow"><button class="btn acc D" id="eAdd" style="background:var(--a);color:var(--ai)">Add to set</button><button class="btn D" id="eAdd2">Add + pick another part</button><button class="btn D" id="eDel" style="margin-left:auto;display:none">Remove clip</button></div>
  </div></div>
@@ -332,11 +335,16 @@ function rSet(){const p=P(S.open);if(!p){go("lib");return}
  if($("bRev"))$("bRev").onclick=()=>review(p.id);
  const l=$("list");const liveUid=E.pl&&E.pl.id===p.id&&E.curItem?E.curItem.uid:null;
  if(!p.items.length){l.innerHTML=`<div class="empty"><div class="D">Nothing here yet</div><p class="sub">Search YouTube or paste links, then pick the best part of each song.</p><button class="btn acc D" id="eAddF">＋ Add your first song</button></div>`;$("eAddF").onclick=openAdd;return}
- l.innerHTML=p.items.map((it,i)=>{const d=it.duration||Math.max(it.end,1);
-  return `<div class="row${it.uid===liveUid?" live":""}" data-i="${i}"><span class="h">⋮⋮</span><span class="n D">${i+1}</span><img loading="lazy" src="${thumb(it.video_id,"default")}">
+ const q=$("setQ").value.trim(),qm=q?matcher(q):null;let shown=0;
+ l.innerHTML=p.items.map((it,i)=>{if(qm&&!qm(it))return"";shown++;const d=it.duration||Math.max(it.end,1);
+  return `<div class="row${it.uid===liveUid?" live":""}" data-i="${i}"><span class="h"${qm?' style="visibility:hidden"':""}>⋮⋮</span><span class="n D">${i+1}</span><img loading="lazy" src="${thumb(it.video_id,"default")}">
   <div style="min-width:0"><div class="tt D">${esc(it.title)}</div><div class="ch">${esc(it.channel||"")}${it.unplayable?`<span class="ab x">Can't play · skipped</span>`:it.auto==="estimate"?`<span class="ab w">Needs your timing</span>`:it.auto?`<span class="ab">Auto · ${SRC[it.auto]}</span>`:""}</div></div>
   <div class="mini"><i style="left:${it.start/d*100}%;width:${Math.max(2,seg(it)/d*100)}%"></i></div>
-  <span class="rg D">${fmt(it.start)}–${fmt(it.end)}</span><button class="ib dup" title="Duplicate">⧉</button><button class="ib del" title="Remove">✕</button></div>`}).join("")}
+  <span class="rg D">${fmt(it.start)}–${fmt(it.end)}</span><button class="ib dup" title="Duplicate">⧉</button><button class="ib del" title="Remove">✕</button></div>`}).join("");
+ $("setQn").innerHTML=!q?"":shown?`${shown} of ${p.items.length} songs match “${esc(q)}”. Clear the search to drag and reorder.`:
+  `<div class="stat" style="margin:6px 0"><span class="v" style="font:15px Inter;text-transform:none">“${esc(q)}” is not in this set yet.</span><button class="btn sm acc D" id="bQyt">Search YouTube & add</button></div>`;
+ if($("bQyt"))$("bQyt").onclick=()=>{openAdd();document.querySelector('.tab[data-t=s]').click();$("qS").value=q;$("fS").requestSubmit()}}
+$("setQ").addEventListener("input",()=>rSet());
 $("list").addEventListener("click",e=>{const r=e.target.closest(".row");if(!r||e.target.closest(".h"))return;const p=P(S.open),i=+r.dataset.i,it=p.items[i];
  if(e.target.closest(".del")){p.items.splice(i,1);save(p);render();toast(`Removed ${it.title}`,"Undo",()=>{p.items.splice(i,0,it);save(p);render()});return}
  if(e.target.closest(".dup")){p.items.splice(i+1,0,Object.assign({},it,{uid:uid()}));save(p);render();toast("Duplicated. Tap it to pick a different part");return}
@@ -366,7 +374,8 @@ const endDrag=()=>{if(!drag)return;const{from,to}=drag;drag.ph.remove();drag.row
 $("list").addEventListener("pointerup",endDrag);$("list").addEventListener("pointercancel",endDrag);
 
 /* ---------- adder ---------- */
-function openAdd(){$("ovAdd").classList.add("on");setTimeout(()=>$("qS").focus(),60)}
+function refreshDup(){document.querySelectorAll("[data-dup]").forEach(el=>{const x=lastRes[+el.dataset.dup];if(x)el.innerHTML=dupBadge(dupInfo(S.open,x.id,x.title))})}
+function openAdd(){refreshDup();$("ovAdd").classList.add("on");setTimeout(()=>$("qS").focus(),60)}
 $("aX").onclick=()=>$("ovAdd").classList.remove("on");
 $("ovAdd").onclick=e=>{if(e.target.id==="ovAdd")$("ovAdd").classList.remove("on")};
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===t));
@@ -375,11 +384,11 @@ let lastRes=[];
 $("fS").onsubmit=async e=>{e.preventDefault();const q=$("qS").value.trim();if(!q)return;$("rS").innerHTML=`<div class="hint D" style="font-size:24px">Searching…</div>`;
  const r=await B.call("search",{q});lastRes=r.results||[];
  if(!lastRes.length){$("rS").innerHTML=`<div class="err">${esc(r.error||"No results")}. Try other words, or paste the link instead.</div>`;return}
- $("rS").innerHTML=lastRes.map((x,i)=>`<div class="res"><img loading="lazy" src="${thumb(x.id)}"><div style="min-width:0"><div class="tt">${esc(x.title)}</div><div class="ch">${esc(x.channel)}${x.duration?" · "+fmt(x.duration):""}</div></div>
+ $("rS").innerHTML=lastRes.map((x,i)=>`<div class="res"><img loading="lazy" src="${thumb(x.id)}"><div style="min-width:0"><div class="tt">${esc(x.title)}</div><div class="ch">${esc(x.channel)}${x.duration?" · "+fmt(x.duration):""}<span data-dup="${i}">${dupBadge(dupInfo(S.open,x.id,x.title))}</span></div></div>
   <div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm acc D" data-pick="${i}">Pick part</button><button class="btn sm D" data-auto="${i}">＋ Add</button></div></div>`).join("")};
 $("rS").onclick=e=>{const b=e.target.closest("button");if(!b)return;const x=lastRes[+(b.dataset.pick??b.dataset.auto)];if(!x)return;
  const it=Object.assign({uid:uid(),video_id:x.id,title:x.title,channel:x.channel,duration:x.duration||null},est(x.duration,P(S.open).clip_len));delete it.auto;
- if(b.dataset.auto!=null){const p=P(S.open);Object.assign(it,est(x.duration,p.clip_len));addItems([it]);b.textContent="✓ Added";autoTime(p.id,[it.uid])}else openEditor(it,{pid:S.open})};
+ if(b.dataset.auto!=null){const p=P(S.open);Object.assign(it,est(x.duration,p.clip_len));addItems([it]);b.textContent="✓ Added";autoTime(p.id,[it.uid]);refreshDup()}else openEditor(it,{pid:S.open})};
 $("fL").onsubmit=e=>{e.preventDefault();const t=$("qL").value,v=vidOf(t);$("eL").textContent="";if(!v){$("eL").textContent="That doesn't look like a YouTube link.";return}
  const st=tOf(t);openEditor({uid:uid(),video_id:v,title:"",channel:"",duration:null,start:isNaN(st)?0:st,end:0},{pid:S.open})};
 $("bB").onclick=async()=>{const lines=$("qB").value.split(/\n/);const rows=[],errs=[];
@@ -390,7 +399,8 @@ $("bB").onclick=async()=>{const lines=$("qB").value.split(/\n/);const rows=[],er
  const r=await B.call("titles",{ids:rows.map(x=>x.v)});const T=r.titles||{};
  const its=rows.map(x=>Object.assign({uid:uid(),video_id:x.v,title:(T[x.v]||{}).title||x.v,channel:(T[x.v]||{}).channel||"",duration:null},x.auto?est(0,P(S.open).clip_len):{start:x.s,end:x.e}));
  addItems(its);const au=its.filter(i=>i.auto).map(i=>i.uid);if(au.length)autoTime(S.open,au);
- $("bB").disabled=false;$("hB").textContent="Leave out times for auto timing. Times like 1:05, 65 or 1m05s.";if(!errs.length)$("qB").value="";toast(`Added ${rows.length} clips`)};
+ const dups=rows.filter(x=>P(S.open).items.filter(i=>i.video_id===x.v).length>1).length;
+ $("bB").disabled=false;if(dups)setTimeout(()=>toast(`${dups} of these ${dups>1?"were":"was"} already in this set (added again)`),2700);$("hB").textContent="Leave out times for auto timing. Times like 1:05, 65 or 1m05s.";if(!errs.length)$("qB").value="";toast(`Added ${rows.length} clips`)};
 async function ytImport(url,pid){url=(url||"").trim();if(!/[?&]list=/.test(url)){toast("Paste a link that contains list=…");return}
  toast("Importing playlist… this can take a few seconds");const r=await B.call("ytplaylist",{url});
  if(!r.ok||!r.items||!r.items.length){toast("Import failed: "+(r.error||"no playable songs found"));return}
@@ -414,6 +424,12 @@ async function autoTime(pid,uids){const p0=P(pid);if(!p0||!uids.length)return;au
  autoBusy--;render();if(big)toast(`Best parts picked for ${uids.length} songs ✨`)}
 function review(pid){const p=P(pid);const it=p&&p.items.find(i=>i.auto==="estimate"&&!i.unplayable);if(!it){toast("All timings set ✓");return}
  openEditor(Object.assign({},it),{pid,uid:it.uid,review:1});$("edH").textContent=`Pick the best part · ${p.items.filter(i=>i.auto==="estimate"&&!i.unplayable).length} left`;$("eAdd").textContent="Save & next"}
+const norm=t=>String(t||"").toLowerCase().replace(/\(.*?\)|\[.*?\]/g," ").split(/\||｜| - | – |: |\bft\.|\bfeat\b/)[0]
+ .replace(/\b(official|music|video|lyrics?|lyrical|full|song|audio|hd|4k|8k|remix|version)\b/g," ").replace(/[^a-z0-9\u0900-\u097f ]/g," ").replace(/\s+/g," ").trim();
+function matcher(q){const w=q.toLowerCase().split(/\s+/).filter(Boolean);return it=>{const h=(it.title+" "+(it.channel||"")).toLowerCase();return w.every(x=>h.includes(x))}}
+function dupInfo(pid,vid,title){const p=P(pid);if(!p)return{n:0,sim:null};const n=p.items.filter(i=>i.video_id===vid).length;
+ const nt=norm(title);const sim=!n&&nt.length>=3?p.items.find(i=>{const a=norm(i.title);return a.length>=3&&(a===nt||a.includes(nt)||nt.includes(a))}):null;return{n,sim}}
+function dupBadge(d){return d.n?`<span class="ab">Already added${d.n>1?" ×"+d.n:""}</span>`:d.sim?`<span class="ab w" title="${esc(d.sim.title)}">Similar song in set</span>`:""}
 function addItems(its){const p=P(S.open);p.items.push(...its);save(p);render()}
 
 /* ---------- clip editor ---------- */
@@ -425,6 +441,7 @@ function openEditor(it,ctx){ed={orig:[it.start,it.end],autoSet:null,it,ctx,dur:i
  const go_=()=>{PV.loadVideoById({videoId:it.video_id,startSeconds:it.start||0});setTimeout(()=>{try{PV.pauseVideo()}catch(e){}},50);
   if(E.playing){PV.mute()}else PV.unMute()};
  if(PV&&pvReady)go_();else if(!PV){PV=new YT.Player("ytP",{width:"100%",height:"100%",playerVars:{rel:0,playsinline:1,modestbranding:1},events:{onReady:()=>{pvReady=true;go_()},onError:e=>{$("eErr").textContent="This video can't be played on other websites (owner's choice). Pick a different upload."}}})}
+ const dd=ctx.uid?{n:0}:dupInfo(ctx.pid,it.video_id,it.title);$("eDup").textContent=dd.n?`Already in this set${dd.n>1?" ×"+dd.n:""}. You can still add it, e.g. a different part.`:dd.sim?`A similar song is already in this set: “${dd.sim.title}”. You can still add this one.`:"";
  edRender();clearInterval(pvTimer);pvTimer=setInterval(edTick,150)}
 function closeEditor(){$("ovEd").classList.remove("on");clearInterval(pvTimer);try{PV.pauseVideo()}catch(e){}ed=null}
 function edTick(){if(!ed||!pvReady)return;let d=0;try{d=PV.getDuration()}catch(e){}
