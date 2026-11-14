@@ -83,6 +83,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
 .tl .mk{position:absolute;top:-8px;bottom:-8px;width:3px;background:var(--a);transform:translateX(-1px);cursor:ew-resize}
 .tl .mk::after{content:"";position:absolute;left:-10px;right:-10px;top:0;bottom:0}
 .tl .mk b{position:absolute;top:-22px;left:-6px;transform:translateX(-100%);font:18px "Bebas Neue",sans-serif;color:var(--a);white-space:nowrap}
+#lTl{cursor:pointer}#lTl .ph2{width:3px;box-shadow:0 0 8px #fff}
 #lOut b,#eOut b{left:6px;transform:none}
 .tl .ph2{position:absolute;top:-4px;bottom:-4px;width:2px;background:#fff}
 .io{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px}
@@ -259,7 +260,7 @@ function vidOf(t){t=String(t||"").trim();if(/^[\w-]{11}$/.test(t))return t;
    const p=u.pathname.split("/").filter(Boolean);if(["embed","shorts","live","v"].includes(p[0])&&p[1])return p[1].slice(0,11)}}catch(e){}return null}
 function tOf(t){try{const u=new URL(/^https?:/i.test(t)?t:"https://"+t);const v=u.searchParams.get("t")||u.searchParams.get("start");return v?parseTime(v):NaN}catch(e){return NaN}}
 
-function setTotal(p){const its=p.items;let t=0;its.forEach((it,i)=>{t+=seg(it)-(i+1<its.length?cfB(it,its[i+1],p.crossfade):0)});return t}
+function setTotal(p){return p.items.reduce((t,it)=>t+(it.unplayable?0:seg(it)),0)}
 const thumb=(v,q="mqdefault")=>`https://i.ytimg.com/vi/${v}/${q}.jpg`;
 function bars(seed,n){let h=0;for(const c of seed)h=(h*31+c.charCodeAt(0))>>>0;const r=()=>(h=(h*1664525+1013904223)>>>0)/4294967296;
  return Array.from({length:n},(_,i)=>{const x=i/n,env=.35+.65*Math.sin(Math.PI*Math.min(1,x*1.15));return Math.max(.12,Math.min(1,env*(.55+.45*r())))})}
@@ -488,86 +489,123 @@ $("fileIn").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f
 
 /* ---------- decks + auto-mix engine ---------- */
 const ERR={2:"invalid video",5:"player error",100:"video removed or private",101:"owner blocks embedding",150:"owner blocks embedding"};
-class Deck{constructor(n){this.name=n;this.wrap=$("deck"+n);this.item=null;this.state="empty";this.vol=0}
+const ease=x=>x<=0?0:x>=1?1:x*x*(3-2*x); // S-curve: gentle start and end
+class Deck{constructor(n){this.name=n;this.wrap=$("deck"+n);this.item=null;this.state="empty";this.vol=-1}
  init(cb){this.player=new YT.Player("yt"+this.name,{width:"100%",height:"100%",playerVars:{controls:0,disablekb:1,rel:0,playsinline:1,iv_load_policy:3,fs:0,modestbranding:1},
   events:{onReady:cb,onStateChange:e=>this.onState(e.data),onError:e=>this.onErr(e.data)}})}
- prime(it){this.item=it;this.state="loading";this.since=performance.now();try{this.player.mute();this.setVol(0);this.player.loadVideoById({videoId:it.video_id,startSeconds:it.start})}catch(e){this.state="error"}}
- onState(s){if(s===1&&this.state==="loading"){this.player.pauseVideo();this.player.seekTo(this.item.start,true);this.state="primed"}
-  else if(s===0&&this.state==="playing")E.ended(this)}
- onErr(c){this.state="error";if(this.item){const o=E.items.find(x=>x.uid===this.item.uid);if(o)o.bad=ERR[c]||(c==="stall"?"stopped loading":"error "+c);
-  if([2,100,101,150].includes(c)&&E.pl){const p=P(E.pl.id),pi=p&&p.items.find(x=>x.uid===this.item.uid);if(pi&&!pi.unplayable){pi.unplayable=true;save(p)}}}E.deckErr(this)}
- go(v){this.state="playing";this.moved=performance.now();this.lt=-1;try{this.player.unMute();this.setVol(v);this.player.playVideo()}catch(e){}}
+ prime(it){this.item=it;this.state="loading";this.since=performance.now();try{this.setVol(0,true);this.player.mute();this.player.loadVideoById({videoId:it.video_id,startSeconds:it.start})}catch(e){this.state="error"}}
+ onState(s){
+  if(s===1&&this.state==="loading"){this.player.pauseVideo();this.player.seekTo(this.item.start,true);this.state="primed";return}
+  if(s===0&&this.state==="playing"){E.ended(this);return}
+  // paused/resumed from outside our app (e.g. the Mac play/pause key) → keep the engine in sync
+  if(this===E.cur&&!E.tr){if(s===2&&this.state==="playing")E.extPause();else if(s===1&&this.state==="paused")E.extResume()}}
+ onErr(c){if(this.state==="error"||this.state==="empty")return;this.state="error";
+  if(this.item){const o=E.items.find(x=>x.uid===this.item.uid);if(o)o.bad=ERR[c]||(c==="stall"?"stopped loading":"error "+c);
+   if([2,100,101,150].includes(c)&&E.pl){const p=P(E.pl.id),pi=p&&p.items.find(x=>x.uid===this.item.uid);if(pi&&!pi.unplayable){pi.unplayable=true;save(p)}}}
+  E.deckErr(this)}
+ go(){this.state="playing";this.moved=performance.now();this.lt=-1;try{this.setVol(0,true);this.player.unMute();this.setVol(0,true);this.player.playVideo()}catch(e){}}
  pause(){if(this.state==="playing"){this.state="paused";try{this.player.pauseVideo()}catch(e){}}}
- resume(){if(this.state==="paused"){this.state="playing";try{this.player.playVideo()}catch(e){}}}
- stop(){this.state="empty";this.item=null;try{this.player.pauseVideo();this.player.mute()}catch(e){}}
- setVol(v){v=Math.max(0,Math.min(100,Math.round(v)));if(v!==this.vol){this.vol=v;try{this.player.setVolume(v)}catch(e){}}}
+ resume(){if(this.state==="paused"){this.state="playing";this.moved=performance.now();try{this.player.playVideo()}catch(e){}}}
+ stop(){this.state="empty";this.item=null;try{this.setVol(0,true);this.player.pauseVideo();this.player.mute()}catch(e){}this.show(false)}
+ setVol(v,force){v=Math.max(0,Math.min(100,Math.round(v)));if(force||v!==this.vol){this.vol=v;try{this.player.setVolume(v)}catch(e){}}}
  t(){try{return this.player.getCurrentTime()||0}catch(e){return 0}}
  dur(){try{return this.player.getDuration()||0}catch(e){return 0}}
  show(o){this.wrap.classList.toggle("on",o)}}
 
-const E={pl:null,items:[],cf:4,offs:[],tot:0,A:null,B:null,cur:null,curItem:null,idx:-1,playing:false,paused:false,fade:null,wait:null,
- master:100,g:1,gT:1,after:null,ready:0,
+/* Engine. A change of song is always: fade the current song OUT to 0 → stop it →
+   start the next (already preloaded on the other deck) → fade it IN. Never overlapping. */
+const E={pl:null,items:[],cf:4,offs:[],tot:0,A:null,B:null,cur:null,curItem:null,idx:-1,playing:false,paused:false,
+ tr:null,master:100,g:1,gT:1,gS:.4,after:null,ready:0,last:performance.now(),skip:new Set(),force:null,lastForce:0,
  M(){return this.master*this.g},
- gain(t,then){this.gT=t;this.after=then||null},last:performance.now(),skip:new Set(),force:null,full:false,
+ gain(t,then,secs){this.gT=t;this.after=then||null;this.gS=secs||.4},
  other(d){return d===this.A?this.B:this.A},
  load(p){this.pl=p;this.cf=+p.crossfade||0;const bad={};this.items.forEach(x=>{if(x.bad)bad[x.uid]=x.bad});
   this.items=p.items.map(x=>Object.assign({},x,bad[x.uid]?{bad:bad[x.uid]}:{}));const o=[];let t=0;
-  this.items.forEach((it,i)=>{o.push(t);t+=seg(it)-(i+1<this.items.length?cfB(it,this.items[i+1],this.cf):0)});this.offs=o;this.tot=t},
+  this.items.forEach(it=>{o.push(t);t+=seg(it)});this.offs=o;this.tot=t},
+ fadeOut(it,manual){const s=it?seg(it):30;return Math.max(.8,Math.min(manual?Math.min(this.cf||3,3):(this.cf||1.5),s/3))},
+ fadeIn(it){return Math.max(.8,Math.min(this.cf||1.5,3,it?seg(it)/4:3))},
  ok(i){const x=this.items[i];return x&&!x.bad&&!x.unplayable&&!this.skip.has(x.uid)&&seg(x)>0},
- nextIdx(){if(this.force){const f=this.items.findIndex(x=>x.uid===this.force);if(f>=0&&f!==this.idx&&this.ok(f))return f;this.force=null}
-  for(let i=this.idx+1;i<this.items.length;i++)if(this.ok(i))return i;return -1},
+ nextIdx(from){from=from??this.idx;if(this.force){const f=this.items.findIndex(x=>x.uid===this.force);if(f>=0&&f!==this.idx&&this.ok(f))return f;this.force=null}
+  for(let i=from+1;i<this.items.length;i++)if(this.ok(i))return i;return -1},
  receive(p){if(!this.pl||this.pl.id!==p.id)return;const cu=this.curItem&&this.curItem.uid,old=this.idx;this.load(p);
-  const ni=this.items.findIndex(x=>x.uid===cu);if(ni>=0){this.idx=ni;if(!this.full)this.curItem.end=this.items[ni].end;this.curItem.start=this.items[ni].start}else this.idx=Math.min(old,this.items.length)-1;
-  if(!this.fade&&!this.wait)this.primeNext(true);dirtyLive=true},
+  const ni=this.items.findIndex(x=>x.uid===cu);if(ni>=0){this.idx=ni;this.curItem.end=this.items[ni].end;this.curItem.start=this.items[ni].start}else this.idx=Math.min(old,this.items.length)-1;
+  if(!this.tr)this.primeNext(true);dirtyLive=true},
  primeNext(onlyDiff){const n=this.nextIdx(),sb=this.cur&&this.other(this.cur);if(n<0||!sb)return;const it=this.items[n];
   if(onlyDiff&&sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&sb.state!=="error")return;sb.prime(Object.assign({},it))},
- playSet(p){if(this.ready<2){toast("Player still loading, try again in a second");return}this.stopDecks();this.skip.clear();this.force=null;this.items=[];this.load(p);this.idx=-1;
-  let s=-1;for(let i=0;i<this.items.length;i++)if(this.ok(i)){s=i;break}if(s<0){toast("No playable songs in this set");return}this.startAt(s)},
- startAt(i){this.playing=true;this.paused=false;this.fade=null;this.full=false;this.g=1;this.gT=1;this.after=null;const d=this.cur||this.A;this.other(d).stop();this.cur=null;
-  this.wait={idx:i,dur:2,deck:d,since:performance.now(),fresh:true};d.prime(Object.assign({},this.items[i]));wake(true);dirtyLive=true;rChrome()},
- trans(i,dur){const sb=this.other(this.cur),it=this.items[i];
-  if(!(sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&(sb.state==="primed"||sb.state==="loading")))sb.prime(Object.assign({},it));
-  this.wait={idx:i,dur,deck:sb,since:performance.now()}},
- begin(w){const to=w.deck,from=w.fresh?null:this.cur;to.go(0);to.show(true);if(from)setTimeout(()=>{if(this.cur!==from)from.show(false)},Math.max(400,w.dur*600));
-  this.fade={from,to,dur:Math.max(.05,w.dur),p:0};this.cur=to;this.curItem=to.item;this.idx=w.idx;this.wait=null;this.full=false;
-  if(this.force===to.item.uid)this.force=null;dirtyLive=true;if(screen==="set")rSet()},
- endFade(){if(!this.fade)return;const f=this.fade;this.fade=null;if(f.from){f.from.stop();f.from.show(false)}f.to.setVol(this.M())},
- jump(i,dur){dur=dur||this.sd();if(!this.items[i])return;delete this.items[i].bad;this.skip.delete(this.items[i].uid);
-  if(!this.playing&&!this.paused){this.startAt(i);return}if(this.paused){this.paused=false;this.playing=true}this.endFade();this.trans(i,dur)},
- skipNow(){const n=this.nextIdx();if(n>=0)this.jump(n,this.sd());else this.stopSoft()},
- sd(){return Math.max(2.5,Math.min(this.cf||3,5))},
- stopSoft(then){if(!this.playing){this.stop();then&&then();return}this.gain(0,()=>{this.stop();this.g=1;this.gT=1;then&&then()})},
- toggleFull(){if(!this.curItem)return;const orig=this.items.find(x=>x.uid===this.curItem.uid);
-  if(!this.full){const d=this.cur.dur();if(d>0){this.curItem.end=d-.3;this.full=true}}else{this.full=false;this.curItem.end=orig?orig.end:this.curItem.end;
-  if(this.cur.t()>=this.curItem.end-.5)this.skipNow()}dirtyLive=true},
+ // ---- transitions ----
+ to(i,manual){// begin changing to clip i
+  const it=this.items[i];if(!it)return;
+  if(this.tr&&this.tr.phase==="out"){// already fading out: just retarget the next song
+   const sb=this.tr.to;if(!(sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&sb.state!=="error"))sb.prime(Object.assign({},it));this.tr.idx=i;
+   if(manual)this.tr.dur=Math.min(this.tr.dur,this.tr.p+this.fadeOut(it,true));return}
+  const from=this.cur;if(!from){this.startAt(i);return}
+  const sb=this.other(from);if(!(sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&(sb.state==="primed"||sb.state==="loading")))sb.prime(Object.assign({},it));
+  this.tr={phase:"out",from,to:sb,idx:i,p:0,dur:this.fadeOut(this.curItem,manual),v0:from.vol};dirtyLive=true},
+ startAt(i){// cold start (first song, or after stop): no fade-out needed
+  this.playing=true;this.paused=false;this.g=1;this.gT=1;this.after=null;
+  const d=this.cur||this.A;this.other(d).stop();if(d.state==="playing")d.stop();this.cur=null;this.curItem=null;
+  this.tr={phase:"wait",from:null,to:d,idx:i,since:performance.now()};d.prime(Object.assign({},this.items[i]));wake(true);dirtyLive=true;rChrome()},
+ playSet(p){if(this.ready<2){toast("Player still loading, try again in a second");return}
+  this.stopDecks();this.skip.clear();this.force=null;this.items=[];this.load(p);this.idx=-1;
+  const s=this.nextIdx(-1);if(s<0){toast("No playable songs in this set");return}this.startAt(s)},
+ jump(i){if(!this.items[i])return;delete this.items[i].bad;this.skip.delete(this.items[i].uid);
+  if(!this.playing&&!this.paused){this.startAt(i);return}
+  if(this.paused){this.paused=false;this.playing=true;this.cur&&this.cur.resume();this.g=1;this.gT=1;this.after=null}
+  if(this.tr&&this.tr.phase!=="out"){// mid fade-in or waiting: fade the new one out from where it is
+   const cur=this.tr.to;this.tr=null;this.cur=cur;this.curItem=cur.item}
+  this.to(i,true)},
+ skipNow(){const n=this.nextIdx(this.tr?this.tr.idx:this.idx);if(this.tr&&this.tr.phase==="out"){if(n>=0)this.to(n,true);return}
+  const m=this.nextIdx();m>=0?this.jump(m):this.stopSoft()},
+ seek(t){const c=this.cur,it=this.curItem;if(!c||!it||this.tr)return;t=Math.max(0,Math.min(t,it.end-this.fadeOut(it)-1));
+  this.gain(0,()=>{try{c.player.seekTo(t,true)}catch(e){}c.moved=performance.now();c.lt=-1;setTimeout(()=>this.gain(1,null,.35),120)},.18)},
  removeNext(){const n=this.nextIdx();if(n<0)return;const it=this.items[n];this.skip.add(it.uid);if(this.force===it.uid)this.force=null;
-  if(!this.wait||this.wait.idx!==n)this.primeNext(true);dirtyLive=true;toast(`Won't play ${it.title}`,"Undo",()=>{this.skip.delete(it.uid);this.primeNext(true);dirtyLive=true})},
- playNext(i){const it=this.items[i];if(!it)return;this.skip.delete(it.uid);delete it.bad;this.force=it.uid;if(!this.fade&&!this.wait)this.primeNext(true);dirtyLive=true;toast(`Next up: ${it.title}`)},
- pauseToggle(){if(this.paused){this.paused=false;this.playing=true;this.g=0;this.cur&&this.cur.resume();this.fade&&this.fade.from&&this.fade.from.resume();if(this.cur)this.cur.moved=performance.now();this.gain(1);wake(true)}
-  else if(this.playing&&!this.after){this.gain(0,()=>{this.playing=false;this.paused=true;this.cur&&this.cur.pause();this.fade&&this.fade.from&&this.fade.from.pause();wake(false);dirtyLive=true})}dirtyLive=true},
- stopDecks(){this.fade=null;this.wait=null;if(this.A){this.A.stop();this.B.stop();this.A.show(false);this.B.show(false)}this.cur=null;this.curItem=null},
- stop(){this.playing=false;this.paused=false;this.stopDecks();this.idx=-1;wake(false);dirtyLive=true;rChrome()},
+  if(!this.tr)this.primeNext(true);dirtyLive=true;toast(`Won't play ${it.title}`,"Undo",()=>{this.skip.delete(it.uid);if(!this.tr)this.primeNext(true);dirtyLive=true})},
+ playNext(i){const it=this.items[i];if(!it)return;this.skip.delete(it.uid);delete it.bad;this.force=it.uid;if(!this.tr)this.primeNext(true);dirtyLive=true;toast(`Next up: ${it.title}`)},
+ // ---- pause / stop (always faded) ----
+ pauseToggle(){
+  if(this.pausing){this.pausing=false;this.gain(1,null,.25);dirtyLive=true;return}             // pressed again mid fade → cancel
+  if(this.paused){this.paused=false;this.playing=true;this.g=0;[this.A,this.B].forEach(d=>d.resume());this.gain(1,null,.35);wake(true);dirtyLive=true;return}
+  if(!this.playing)return;this.pausing=true;
+  this.gain(0,()=>{this.pausing=false;this.playing=false;this.paused=true;[this.A,this.B].forEach(d=>d.pause());wake(false);dirtyLive=true},.3);dirtyLive=true},
+ extPause(){if(this.paused)return;this.pausing=false;this.after=null;this.g=0;this.gT=0;this.playing=false;this.paused=true;[this.A,this.B].forEach(d=>d.pause());wake(false);dirtyLive=true},
+ extResume(){if(!this.paused)return;this.paused=false;this.playing=true;this.g=0;[this.A,this.B].forEach(d=>d.resume());this.gain(1,null,.35);wake(true);dirtyLive=true},
+ stopDecks(){this.tr=null;this.pausing=false;if(this.A){this.A.stop();this.B.stop()}this.cur=null;this.curItem=null},
+ stop(){this.playing=false;this.paused=false;this.stopDecks();this.idx=-1;this.g=1;this.gT=1;this.after=null;wake(false);dirtyLive=true;rChrome()},
+ stopSoft(then){if(!this.playing){this.stop();then&&then();return}this.gain(0,()=>{this.stop();then&&then()},.9)},
  finish(){this.stop();toast("That's the end of the set 🎉");if(screen==="live")go("set")},
- ended(d){if(d!==this.cur||this.fade||this.wait)return;const n=this.nextIdx();n>=0?this.trans(n,.6):this.finish()},
- deckErr(d){dirtyLive=true;if(screen==="set")rSet();
-  if(this.wait&&this.wait.deck===d){const fresh=this.wait.fresh,dur=this.wait.dur,from=this.wait.idx;this.wait=null;let n=-1;
-   for(let i=from+1;i<this.items.length;i++)if(this.ok(i)){n=i;break}if(n<0){fresh?this.stop():null;return}fresh?this.startAt(n):this.trans(n,dur)}
-  else if(d===this.cur){const n=this.nextIdx();n>=0?this.trans(n,.5):this.finish()}else this.primeNext(false)},
- tick(){const t0=performance.now(),dt=Math.min(1.5,(t0-this.last)/1000);this.last=t0;
-  if(this.g!==this.gT){const st=dt/.9;this.g=this.gT>this.g?Math.min(this.gT,this.g+st):Math.max(this.gT,this.g-st);if(this.g===this.gT&&this.after){const f=this.after;this.after=null;f()}}
+ ended(d){if(d===this.cur&&!this.tr){const n=this.nextIdx();n>=0?this.to(n):this.finish()}else if(this.tr&&d===this.tr.from)this.tr.p=this.tr.dur},
+ deckErr(d){dirtyLive=true;if(screen==="set")rSet();const tr=this.tr;
+  if(tr&&d===tr.to){// the song we were about to play is broken → load the next good one on the same deck
+   const n=this.nextIdx(tr.idx);if(n<0){tr.phase==="out"?(tr.idx=-1):this.finish();return}tr.idx=n;d.prime(Object.assign({},this.items[n]));tr.since=performance.now();return}
+  if(tr&&d===tr.from){tr.p=tr.dur;return}
+  if(d===this.cur){const n=this.nextIdx();if(n<0){this.finish();return}this.tr={phase:"out",from:d,to:this.other(d),idx:n,p:0,dur:.01,v0:0};
+   this.tr.to.prime(Object.assign({},this.items[n]));return}
+  this.primeNext(false)},
+ tick(){const t0=performance.now(),dt=Math.min(.5,(t0-this.last)/1000);this.last=t0;
+  if(this.g!==this.gT){const st=dt/this.gS;this.g=this.gT>this.g?Math.min(this.gT,this.g+st):Math.max(this.gT,this.g-st);
+   if(this.g===this.gT&&this.after){const f=this.after;this.after=null;f()}}
   if(!this.playing)return;
-  if(!this.cur&&!this.wait){const n=this.nextIdx();n>=0?this.startAt(n):this.stop();return} // safety net: never sit silent
-  if(this.cur&&this.cur.state==="playing"&&!this.paused){const t=this.cur.t();if(Math.abs(t-(this.cur.lt??-1))>.05){this.cur.lt=t;this.cur.moved=t0}
-   else if(t0-(this.cur.moved||t0)>10000){this.cur.moved=t0;this.cur.onErr("stall");return}}
-  if(this.wait){const w=this.wait,st=w.deck.state,waited=(t0-w.since)/1000;if(st==="primed"||(st==="loading"&&waited>(w.fresh?10:4)))this.begin(w)}
-  if(this.fade){const f=this.fade;f.p+=dt;const x=Math.min(1,f.p/f.dur);
-   // outgoing song fades out first, incoming fades in on top of its tail: smooth, no silent gap
-   const xo=Math.min(1,x/.65),xi=f.from?Math.max(0,(x-.35)/.65):x;
-   f.to.setVol(this.M()*Math.sin(xi*Math.PI/2));if(f.from)f.from.setVol(this.M()*Math.cos(xo*Math.PI/2));
-   if(x>=1){this.endFade();this.primeNext(false)}}else if(this.cur)this.cur.setVol(this.M());
-  if(this.cur&&this.curItem&&!this.wait&&this.cur.state==="playing"){const t=this.cur.t(),it=this.curItem,n=this.nextIdx();
-   if(n>=0){const cf=cfB(it,this.items[n],this.cf);if(t>=it.end-cf-.05){this.endFade();this.trans(n,Math.max(.3,cf))}}
-   else{const out=Math.min(3,seg(it)/3);if(t>=it.end-out&&!this.fade)this.cur.setVol(this.M()*Math.max(0,(it.end-t)/out));if(t>=it.end-.05)this.finish()}}}};
+  const tr=this.tr;
+  if(tr){
+   if(tr.phase==="out"){tr.p+=dt;const x=tr.p/tr.dur;tr.from.setVol(tr.v0*(1-ease(x))*this.g);
+    if(x>=1){tr.from.stop();if(tr.idx<0){this.finish();return}tr.phase="wait";tr.since=t0;this.cur=tr.to;this.curItem=null;dirtyLive=true}}
+   if(tr.phase==="wait"){const st=tr.to.state,w=(t0-tr.since)/1000;
+    if(st==="primed"||(st==="loading"&&w>6)){tr.to.go();tr.to.show(true);$("decks").querySelectorAll(".deck").forEach(el=>{if(el!==tr.to.wrap)el.classList.remove("on")});
+     this.cur=tr.to;this.curItem=tr.to.item;this.idx=tr.idx;if(this.force===tr.to.item.uid)this.force=null;
+     tr.phase="in";tr.p=0;tr.dur=this.fadeIn(this.curItem);dirtyLive=true;if(screen==="set")rSet()}}
+   else if(tr.phase==="in"){tr.p+=dt;const x=tr.p/tr.dur;tr.to.setVol(this.M()*ease(x));if(x>=1){this.tr=null;this.primeNext(false)}}
+  }else if(this.cur&&this.curItem&&this.cur.state==="playing"){
+   const t=this.cur.t(),it=this.curItem,n=this.nextIdx();
+   const fo=this.fadeOut(it);
+   if(t>=it.end-fo-.05){if(n>=0)this.to(n);else{this.tr={phase:"out",from:this.cur,to:this.other(this.cur),idx:-1,p:0,dur:fo,v0:this.cur.vol}}}
+   else{this.cur.setVol(this.M());if(t0-(this.lastForce||0)>2000){this.lastForce=t0;this.cur.setVol(this.M(),true)}} // re-assert volume now and then
+  }
+  // a song that stops moving for 10 s (network, ad, YouTube hiccup) gets skipped
+  const live=this.tr&&this.tr.phase==="in"?this.tr.to:(!this.tr?this.cur:null);
+  if(live&&live.state==="playing"&&!this.pausing){const t=live.t();if(Math.abs(t-(live.lt??-1))>.05){live.lt=t;live.moved=t0}
+   else if(t0-(live.moved||t0)>10000){live.moved=t0;live.onErr("stall");return}}
+  if(!this.cur&&!this.tr){const n=this.nextIdx();n>=0?this.startAt(n):this.stop()} // never sit silent
+ }};
 
 /* ---------- live screen render ---------- */
 let dirtyLive=true,vidBright=false,liveKey="";
@@ -576,9 +614,9 @@ function liveFrame(){const live=E.playing||E.paused;
  // mini bar
  if(live&&E.curItem){$("mT").textContent=E.curItem.title;$("mP").textContent=E.paused?"▶":"❚❚";const el=E.cur?Math.max(0,E.cur.t()-E.curItem.start):0;$("mprog").style.width=(E.tot?Math.min(100,((E.offs[E.idx]||0)+el)/E.tot*100):0)+"%"}
  if(screen!=="live")return;
- if(!live&&!E.wait){go(S.open?"set":"lib");return}
+ if(!live&&!E.tr){go(S.open?"set":"lib");return}
  const it=E.curItem,n=E.nextIdx(),nx=n>=0?E.items[n]:null,sb=E.cur?E.other(E.cur):E.B;
- const key=[it&&it.uid,it&&it.end,nx&&nx.uid,E.items.length,E.skip.size,E.full,E.paused,E.cur&&E.cur.name].join("|");
+ const key=[it&&it.uid,it&&it.end,nx&&nx.uid,E.items.length,E.skip.size,E.paused,E.cur&&E.cur.name].join("|");
  if(dirtyLive||key!==liveKey){dirtyLive=false;liveKey=key;
   $("lSetName").textContent=`${E.pl?E.pl.name:""} · ${E.items.length} songs`;
   $("dA").textContent="Deck "+(E.cur?E.cur.name:"A");$("dB").textContent="Deck "+(E.cur?E.other(E.cur).name:"B");
@@ -595,14 +633,20 @@ function liveFrame(){const live=E.playing||E.paused;
  // per-frame
  const sbs=sb&&sb.state;$("dBs").innerHTML=!nx?"":sbs==="primed"?'<span style="color:var(--a)">● Ready</span>':sbs==="loading"?"○ Cueing":sbs==="playing"?'<span style="color:var(--a)">● Mixing in</span>':sbs==="error"?"✕ Skipping":"○ Waiting";
  if(it&&E.cur){const D=E.cur.dur()||it.duration||Math.max(it.end,60),t=E.cur.t();
-  $("lIn").style.left=it.start/D*100+"%";$("lOut").style.left=Math.min(100,it.end/D*100)+"%";$("lPh").style.left=Math.min(100,t/D*100)+"%";
+  $("lIn").style.left=it.start/D*100+"%";$("lOut").style.left=Math.min(100,it.end/D*100)+"%";if(scrub==null)$("lPh").style.left=Math.min(100,t/D*100)+"%";
   $("lIn").querySelector("b").textContent="In "+fmt(it.start);$("lOut").querySelector("b").textContent="Out "+fmt(it.end);
   const bs=$("lTl").querySelector(".bars").children;for(let i=0;i<bs.length;i++){const x=(i+.5)/bs.length*D;bs[i].className=x<it.start||x>it.end?"":x<=t?"pl":"on"}
   const el=(E.offs[E.idx]||0)+Math.max(0,Math.min(t,it.end)-it.start);$("lTime").textContent=`${fmt(el)} / ${fmt(E.tot)}`;
-  let s;if(E.paused)s="Paused";else if(E.fade&&E.fade.from)s=`Mixing into ${it.title} · ${Math.round(E.fade.p/E.fade.dur*100)}%`;
-  else if(E.wait)s=`Cueing ${E.items[E.wait.idx]?E.items[E.wait.idx].title:""}…`;
-  else if(nx){const cf=cfB(it,nx,E.cf);s=`Out at ${fmt(it.end-cf)} · fading into ${nx.title}`}else s=`Last song · ends at ${fmt(it.end)}`;
-  $("lStat").textContent=s}else $("lStat").textContent="Cueing the first song…"}
+  const tr=E.tr,ti=tr&&E.items[tr.idx];let s;if(E.paused)s="Paused";else if(E.pausing)s="Pausing…";
+  else if(tr&&tr.phase==="out")s=ti?`Fading out · next: ${ti.title}`:"Fading out · end of set";
+  else if(tr&&tr.phase==="wait")s=`Starting ${ti?ti.title:"next song"}…`;
+  else if(tr&&tr.phase==="in")s=`Fading in · ${it.title}`;
+  else if(nx){s=`Fades out at ${fmt(it.end-E.fadeOut(it))} · then ${nx.title}`}else s=`Last song · ends at ${fmt(it.end)}`;
+  if(scrub==null)$("lStat").textContent=s}else $("lStat").textContent="Cueing the first song…"}
+let scrub=null;
+tlDrag($("lTl"),(f,e,start)=>{const it=E.curItem,c=E.cur;if(!it||!c||E.tr)return;const D=c.dur()||it.duration||Math.max(it.end,60);
+ scrub=f*D;$("lPh").style.left=f*100+"%";$("lStat").textContent=`Jump to ${fmt(scrub)}`});
+$("lTl").addEventListener("pointerup",()=>{if(scrub!=null){E.seek(scrub);scrub=null}});
 $("lq").onclick=e=>{const b=e.target.closest("button[data-a]"),r=e.target.closest(".row");if(!r)return;const i=+r.dataset.i;
  if(b&&b.dataset.a==="next")E.playNext(i);else if(b)E.jump(i);else if(E.skip.has(E.items[i].uid)){E.skip.delete(E.items[i].uid);E.primeNext(true);dirtyLive=true}};
 $("lSkip").onclick=()=>E.skipNow();$("lFull").onclick=()=>E.pauseToggle();$("lRm").onclick=()=>E.removeNext();
@@ -611,15 +655,22 @@ $("lPause").onclick=()=>E.pauseToggle();$("lExit").onclick=()=>E.stopSoft(()=>go
 $("lSet").onclick=()=>go("set",E.pl&&E.pl.id);$("lVid").onclick=()=>{vidBright=!vidBright;rChrome()};
 $("vol").oninput=e=>E.master=+e.target.value;
 $("mP").onclick=()=>E.pauseToggle();$("mN").onclick=()=>E.skipNow();$("mO").onclick=()=>go("live");
-document.addEventListener("keydown",e=>{if(/INPUT|TEXTAREA/.test(e.target.tagName)||!(E.playing||E.paused))return;
- if(e.code==="Space"){e.preventDefault();E.pauseToggle()}else if(e.code==="ArrowRight")E.skipNow()});
+function onKey(e){const tg=e.target&&e.target.tagName||"";if(/INPUT|TEXTAREA|SELECT/.test(tg)||(e.target&&e.target.isContentEditable))return;
+ if(!(E.playing||E.paused||E.pausing))return;
+ if(e.code==="Space"||e.key===" "||e.code==="KeyK"){e.preventDefault();e.stopPropagation();if(!e.repeat)E.pauseToggle()}
+ else if(e.code==="ArrowRight"){e.preventDefault();if(!e.repeat)E.skipNow()}}
+document.addEventListener("keydown",onKey,true);
+try{window.parent.document.addEventListener("keydown",onKey,true)}catch(e){}
+try{if(window.top!==window.parent)window.top.document.addEventListener("keydown",onKey,true)}catch(e){}
+// buttons must not keep focus, otherwise Space would also "click" the last button pressed
+document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("button");if(b)b.blur()},true);
 let wl=null;async function wake(on){try{if(on&&!wl&&navigator.wakeLock)wl=await navigator.wakeLock.request("screen");if(!on&&wl){wl.release();wl=null}}catch(e){}}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&E.playing){wl=null;wake(true)}});
 
 /* ---------- boot ---------- */
 window.onYouTubeIframeAPIReady=()=>{E.A=new Deck("A");E.B=new Deck("B");const cb=()=>{E.ready++};E.A.init(cb);E.B.init(cb)};
 const yt=document.createElement("script");yt.src="https://www.youtube.com/iframe_api";yt.onerror=()=>toast("Couldn't reach YouTube. Check your internet and reload.");document.head.appendChild(yt);
-setInterval(()=>{E.tick();liveFrame()},100);
+setInterval(()=>E.tick(),50);setInterval(liveFrame,100);
 window.__E=E;window.__S=S;
 fitHeight();send("streamlit:componentReady",{apiVersion:1});
 })();
