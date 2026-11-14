@@ -320,7 +320,8 @@ function rLib(){const c=$("cards");const pls=sorted();
  $("cYT").onclick=()=>dialog("Import YouTube playlist",`<input id="dlgIn" placeholder="https://youtube.com/playlist?list=…">`,[["Cancel"],["Import",()=>ytImport($("dlgIn").value,null),1]]);
  $("libNote").innerHTML=`Plays through YouTube. Some videos may show an ad unless you have YouTube Premium. Best on a laptop plugged into a speaker.<br>`+
   (S.info.load_error?`<span style="color:#ff7a7a">Couldn't load saved sets: ${esc(S.info.load_error)}</span><br>`:"")+
-  (S.info.permanent?"Your sets are saved permanently.":"Sets are saved on this server only and can be lost when it restarts. Use Export to keep a backup.")}
+  (S.info.save&&S.info.save.error?`<span style="color:#ffb020">${esc(S.info.save.error)}</span><br>`:"")+
+  (S.info.permanent?"Your sets are saved permanently."+(S.info.save&&S.info.save.pending?" (saving…)":""):"Sets are saved on this server only and can be lost when it restarts. Use Export to keep a backup.")}
 function newSet(){dialog("New set",`<input id="dlgIn" placeholder="e.g. Saturday night" maxlength="80">`,[["Cancel"],["Create",()=>{
   const name=$("dlgIn").value.trim()||"Untitled set";const p={id:uid(),name,crossfade:4,items:[],created:now(),updated:now()};
   S.data.playlists[p.id]=p;(S.created=S.created||{})[p.id]=1;save(p,true);go("set",p.id);openAdd()},1]]);setTimeout(()=>$("dlgIn").focus(),50)}

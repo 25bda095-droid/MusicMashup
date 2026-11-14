@@ -50,39 +50,22 @@ if pw and not st.session_state.get("authed"):
             st.error("Wrong password")
     st.stop()
 
-storage = get_storage()
+try:
+    storage = get_storage()
+except StorageError as e:
+    st.error(f"Couldn't reach the playlist database: {e}. Reload the page in a minute.")
+    st.stop()
 
 
 def load_data(force=False):
-    fresh = time.time() - st.session_state.get("loaded_at", 0) < 10
-    if "data" in st.session_state and not force and fresh:
-        return
-    try:
-        st.session_state.data = storage.load()
-        st.session_state.loaded_at = time.time()
-        st.session_state.load_error = None
-    except StorageError as e:
-        st.session_state.load_error = str(e)
-        st.session_state.setdefault("data", {"version": 1, "playlists": {}})
+    """Every visitor reads the same in-memory copy; GitHub is only checked about once a minute."""
+    st.session_state.data = storage.get(force=force)
+    st.session_state.load_error = None
 
 
 def commit(changes):
-    """Apply {pid: playlist|None} on top of the LATEST saved data (multi-device safe)."""
-    try:
-        data = storage.load()
-    except StorageError:
-        data = st.session_state.data
-    for pid, pl in changes.items():
-        if pl is None:
-            data["playlists"].pop(pid, None)
-        else:
-            pl["updated"] = time.time()
-            data["playlists"][pid] = pl
-    st.session_state.data, st.session_state.loaded_at = data, time.time()
-    try:
-        storage.save(data)
-    except StorageError as e:
-        return str(e)
+    """Apply {pid: playlist|None}. Saved to memory now; written to the Gist in batches."""
+    st.session_state.data = storage.apply(changes)
 
 
 def _num(v, d=0.0):
@@ -160,7 +143,7 @@ def handle(ev):
         r["cuts"] = {v["id"]: c for v, c in zip(vids, cuts)}
         err = None
     elif kind == "sync":
-        load_data(force=True)
+        load_data()
         err = None
     else:
         err = f"unknown event {kind!r}"
@@ -171,7 +154,8 @@ def handle(ev):
 
 load_data()
 ev = mashup_ui(data=st.session_state.data, resp=st.session_state.get("resp"),
-               info={"permanent": storage.permanent, "load_error": st.session_state.get("load_error")})
+               info={"permanent": storage.permanent, "load_error": st.session_state.get("load_error"),
+                     "save": storage.status()})
 
 if isinstance(ev, dict) and ev.get("id") and ev["id"] != st.session_state.get("last_ev"):
     st.session_state.last_ev = ev["id"]

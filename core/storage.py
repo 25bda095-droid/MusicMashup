@@ -1,17 +1,27 @@
 """Playlist persistence.
 
-Two backends:
+Backends:
   * GistStorage  - permanent; used when GITHUB_TOKEN + GIST_ID are in secrets.
-  * LocalStorage - data/playlists.json; fine locally, but wiped whenever a
-                   Streamlit Cloud app restarts.
+  * LocalStorage - data/playlists.json (Streamlit Cloud wipes it on restart).
+
+SharedStore sits in front of the backend and is shared by every visitor:
+  * all reads come from memory; the Gist is re-checked at most once a minute with
+    a conditional request (a "304 Not Modified" reply doesn't count toward GitHub's limit)
+  * writes go to memory immediately and are flushed to the Gist by a background
+    thread at most once every FLUSH_EVERY seconds, so 100 quick edits = 1 write
+  * if GitHub rate-limits us, changes stay in memory (and a local mirror file)
+    and the flush is retried with backoff; nothing is lost
 Data shape: {"version": 1, "playlists": {pid: playlist}}
 """
 
 from __future__ import annotations
 
+import atexit
+import copy
 import json
 import os
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -20,10 +30,20 @@ import streamlit as st
 
 FILENAME = "playlists.json"
 EMPTY = {"version": 1, "playlists": {}}
+FLUSH_EVERY = 20      # seconds between Gist writes (max ~180 writes/hour)
+REFRESH_EVERY = 60    # seconds between checks for changes made elsewhere
 
 
 class StorageError(RuntimeError):
     pass
+
+
+def _atomic_write(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
 
 
 class LocalStorage:
@@ -33,20 +53,16 @@ class LocalStorage:
     def __init__(self, path: Path):
         self.path = path
 
-    def load(self) -> dict:
+    def load(self, etag=None):
         if not self.path.exists():
-            return json.loads(json.dumps(EMPTY))
+            return copy.deepcopy(EMPTY), None
         try:
-            return _normalise(json.loads(self.path.read_text("utf-8")))
+            return _normalise(json.loads(self.path.read_text("utf-8"))), None
         except (OSError, json.JSONDecodeError) as e:
             raise StorageError(f"Could not read {self.path}: {e}") from e
 
     def save(self, data: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, self.path)  # atomic: never leaves a half-written file
+        _atomic_write(self.path, data)
 
 
 class GistStorage:
@@ -55,49 +71,45 @@ class GistStorage:
 
     def __init__(self, token: str, gist_id: str):
         self.url = f"https://api.github.com/gists/{gist_id}"
-        self.headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-        }
+        self.headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
 
-    def load(self) -> dict:
+    def load(self, etag=None):
+        """Returns (data, etag), or (None, etag) when unchanged since `etag`."""
+        h = dict(self.headers)
+        if etag:
+            h["If-None-Match"] = etag
         try:
-            r = requests.get(self.url, headers=self.headers, timeout=15)
+            r = requests.get(self.url, headers=h, timeout=15)
         except requests.RequestException as e:
             raise StorageError(f"GitHub unreachable: {e}") from e
+        if r.status_code == 304:
+            return None, etag
         if not r.ok:
-            raise StorageError(f"GitHub Gist error {r.status_code}: {r.text[:200]}")
+            raise StorageError(f"GitHub Gist error {r.status_code}: {r.text[:160]}")
         f = r.json().get("files", {}).get(FILENAME)
         if not f:
-            return json.loads(json.dumps(EMPTY))
+            return copy.deepcopy(EMPTY), r.headers.get("ETag")
         content = f.get("content", "")
         if f.get("truncated"):
             content = requests.get(f["raw_url"], headers=self.headers, timeout=15).text
         try:
-            return _normalise(json.loads(content or "{}"))
+            return _normalise(json.loads(content or "{}")), r.headers.get("ETag")
         except json.JSONDecodeError as e:
             raise StorageError(f"Gist content is not valid JSON: {e}") from e
 
     def save(self, data: dict) -> None:
         body = {"files": {FILENAME: {"content": json.dumps(data, ensure_ascii=False, indent=1)}}}
-        last = None
-        for attempt in range(3):
-            try:
-                r = requests.patch(self.url, headers=self.headers, json=body, timeout=15)
-                if r.ok:
-                    return
-                last = f"GitHub Gist error {r.status_code}: {r.text[:200]}"
-                if r.status_code < 500:
-                    break
-            except requests.RequestException as e:
-                last = str(e)
-            time.sleep(1 + attempt)
-        raise StorageError(last or "save failed")
+        try:
+            r = requests.patch(self.url, headers=self.headers, json=body, timeout=20)
+        except requests.RequestException as e:
+            raise StorageError(str(e)) from e
+        if not r.ok:
+            raise StorageError(f"GitHub Gist error {r.status_code}: {r.text[:160]}")
 
 
 def _normalise(data: dict) -> dict:
     if not isinstance(data, dict):
-        return json.loads(json.dumps(EMPTY))
+        return copy.deepcopy(EMPTY)
     data.setdefault("version", 1)
     pls = data.setdefault("playlists", {})
     for pid, p in list(pls.items()):
@@ -110,14 +122,109 @@ def _normalise(data: dict) -> dict:
     return data
 
 
+class SharedStore:
+    def __init__(self, backend, mirror: Path):
+        self.b = backend
+        self.name, self.permanent = backend.name, backend.permanent
+        self.mirror = mirror
+        self.lock = threading.RLock()
+        self.data = None
+        self.etag = None
+        self.checked = 0.0
+        self.dirty = False
+        self.last_flush = 0.0
+        self.retry_at = 0.0
+        self.error = None          # last load/save problem, shown in the UI
+        self._load(initial=True)
+        threading.Thread(target=self._flusher, daemon=True).start()
+        atexit.register(self.flush)
+
+    # -- reading
+    def _load(self, initial=False):
+        try:
+            data, etag = self.b.load(None if initial else self.etag)
+            self.checked = time.time()
+            if data is not None and not self.dirty:
+                self.data, self.etag = data, etag
+            self.error = None if not self.dirty else self.error
+        except StorageError as e:
+            self.checked = time.time()
+            self.error = str(e)
+            if self.data is None:
+                # GitHub unavailable at start: use the local mirror if we have one
+                if self.mirror.exists():
+                    self.data = _normalise(json.loads(self.mirror.read_text("utf-8")))
+                else:
+                    raise
+
+    def get(self, force=False) -> dict:
+        with self.lock:
+            if not self.dirty and (force or time.time() - self.checked > REFRESH_EVERY):
+                self._load()
+            return copy.deepcopy(self.data)
+
+    # -- writing
+    def apply(self, changes: dict) -> dict:
+        with self.lock:
+            for pid, pl in changes.items():
+                if pl is None:
+                    self.data["playlists"].pop(pid, None)
+                else:
+                    pl["updated"] = time.time()
+                    self.data["playlists"][pid] = pl
+            self.dirty = True
+            try:
+                _atomic_write(self.mirror, self.data)
+            except OSError:
+                pass
+            if not self.permanent:  # local file: write straight away
+                self.flush()
+            return copy.deepcopy(self.data)
+
+    def flush(self) -> bool:
+        with self.lock:
+            if not self.dirty:
+                return True
+            snapshot = copy.deepcopy(self.data)
+        try:
+            self.b.save(snapshot)
+        except StorageError as e:
+            with self.lock:
+                self.error = f"Saving to GitHub is delayed ({e}). Your changes are kept and will be retried."
+                backoff = 120 if ("403" in str(e) or "429" in str(e)) else 30
+                self.retry_at = time.time() + backoff
+            return False
+        with self.lock:
+            if self.data == snapshot:
+                self.dirty = False
+            self.last_flush = time.time()
+            self.etag = None  # our own write changed the gist; next check fetches it once
+            self.checked = time.time()
+            self.error = None
+        return True
+
+    def _flusher(self):
+        while True:
+            time.sleep(2)
+            now = time.time()
+            if self.dirty and now - self.last_flush >= FLUSH_EVERY and now >= self.retry_at:
+                self.flush()
+
+    def status(self) -> dict:
+        with self.lock:
+            return {"pending": self.dirty, "error": self.error}
+
+
 @st.cache_resource
-def get_storage():
+def get_storage() -> SharedStore:
     try:
         token = st.secrets.get("GITHUB_TOKEN")
         gist_id = st.secrets.get("GIST_ID")
     except Exception:
         token = gist_id = None
+    root = Path(__file__).resolve().parent.parent / "data"
     if token and gist_id:
-        return GistStorage(token, gist_id)
+        return SharedStore(GistStorage(token, gist_id), root / "gist_mirror.json")
     custom = os.environ.get("MUSICMASHUP_DATA")
-    return LocalStorage(Path(custom) if custom else Path(__file__).resolve().parent.parent / "data" / FILENAME)
+    path = Path(custom) if custom else root / FILENAME
+    return SharedStore(LocalStorage(path), path.with_suffix(".mirror.json"))
