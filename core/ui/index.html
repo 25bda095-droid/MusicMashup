@@ -224,7 +224,7 @@ h1.D{font-size:clamp(54px,9vw,112px);margin:0}
   <div style="margin-top:14px"><input id="edT" style="font-weight:600"></div>
   <div class="tl" id="eTl" style="margin-top:34px"><div class="bars"></div><div class="mk" id="eIn"><b></b></div><div class="mk" id="eOut"><b></b></div><div class="ph2" id="ePh"></div></div>
   <div class="erow" style="justify-content:space-between;margin-top:6px">
-   <div style="display:flex;gap:8px"><button class="btn sm D" id="ePP">▶ Play</button><button class="btn sm acc D" id="ePC">▶ Play clip</button><button class="btn sm D" id="eAuto">✨ Auto</button></div>
+   <div style="display:flex;gap:8px"><button class="btn sm D" id="ePP">▶ Play</button><button class="btn sm acc D" id="ePC">▶ Play clip</button><button class="btn sm D" id="eAuto">✨ Auto</button><button class="btn sm D" id="eMute" style="display:none">🔈 Unmute preview</button></div>
    <span class="D" style="font-size:24px;color:var(--m)" id="eNow">0:00 / 0:00</span></div>
   <div class="io">
    <div class="box"><div class="lab D">In</div><div class="ctl"><button class="ib" data-n="in,-1">−1</button><input id="eInT"><button class="ib" data-n="in,1">+1</button><button class="ib D acc" id="eSetIn" style="font-size:18px">Set at now</button></div></div>
@@ -440,6 +440,7 @@ function openEditor(it,ctx){ed={orig:[it.start,it.end],autoSet:null,it,ctx,dur:i
  $("eAdd").textContent=ctx.uid?"Save clip":"Add to set";$("edT").value=it.title||"";$("eErr").textContent="";
  const go_=()=>{PV.loadVideoById({videoId:it.video_id,startSeconds:it.start||0});setTimeout(()=>{try{PV.pauseVideo()}catch(e){}},50);
   if(E.playing){PV.mute()}else PV.unMute()};
+ $("eMute").style.display=E.playing?"":"none";$("eMute").textContent="🔈 Unmute preview";
  if(PV&&pvReady)go_();else if(!PV){PV=new YT.Player("ytP",{width:"100%",height:"100%",playerVars:{rel:0,playsinline:1,modestbranding:1},events:{onReady:()=>{pvReady=true;go_()},onError:e=>{$("eErr").textContent="This video can't be played on other websites (owner's choice). Pick a different upload."}}})}
  const dd=ctx.uid?{n:0}:dupInfo(ctx.pid,it.video_id,it.title);$("eDup").textContent=dd.n?`Already in this set${dd.n>1?" ×"+dd.n:""}. You can still add it, e.g. a different part.`:dd.sim?`A similar song is already in this set: “${dd.sim.title}”. You can still add this one.`:"";
  edRender();clearInterval(pvTimer);pvTimer=setInterval(edTick,150)}
@@ -473,6 +474,7 @@ $("eSetIn").onclick=()=>setIO("in",Math.round(PV.getCurrentTime()));$("eSetOut")
 $("ePP").onclick=()=>{ed.clipStop=null;PV.getPlayerState()===1?PV.pauseVideo():PV.playVideo()};
 $("ePC").onclick=()=>{ed.clipStop=ed.it.end;PV.seekTo(ed.it.start,true);PV.playVideo()};
 $("eX").onclick=closeEditor;
+$("eMute").onclick=()=>{try{if(PV.isMuted()){PV.unMute();$("eMute").textContent="🔇 Mute preview"}else{PV.mute();$("eMute").textContent="🔈 Unmute preview"}}catch(e){}};
 $("eAuto").onclick=async()=>{if(!ed)return;const p=P(ed.ctx.pid)||{};$("eAuto").textContent="Finding…";
  const r=await B.call("autocut",{videos:[{id:ed.it.video_id,duration:ed.dur}],length:p.clip_len||60,replayed:p.replayed!==false});$("eAuto").textContent="✨ Auto";
  const c=r.cuts&&r.cuts[ed.it.video_id];if(!c||!ed)return;ed.it.start=c.start;ed.it.end=c.end;ed.autoSet=c.source;edRender();try{PV.seekTo(c.start,true)}catch(e){}
@@ -646,7 +648,7 @@ function liveFrame(){const live=E.playing||E.paused;
   const tl=$("lTl").querySelector(".bars");tl.dataset.v=it?it.video_id:"";tl.innerHTML=it?bars(it.video_id,96).map(h=>`<i style="height:${h*100}%"></i>`).join(""):"";
   $("lq").innerHTML=`<div class="D" style="font-size:30px;color:var(--m);margin-bottom:6px">The set</div>`+E.items.map((x,i)=>`<div class="row${x.uid===(it&&it.uid)?" live":""}${E.skip.has(x.uid)||x.bad?" skip":""}" data-i="${i}" title="${esc(x.bad?"Can't play: "+x.bad:"")}">
    <span class="n D">${i+1}</span><img loading="lazy" src="${thumb(x.video_id,"default")}"><div style="min-width:0"><div class="tt D">${esc(x.title)}</div><div class="ch">${esc(x.bad?"Can't play: "+x.bad:x.channel||"")}</div></div>
-   <span class="rg D">${fmt(x.start)}–${fmt(x.end)}</span><div style="display:flex;gap:6px"><button class="btn sm D" data-a="now">Play now</button><button class="btn sm acc D hide-m" data-a="next">Next</button></div></div>`).join("")}
+   <span class="rg D">${fmt(x.start)}–${fmt(x.end)}</span><div style="display:flex;gap:6px"><button class="btn sm D" data-a="edit">Edit</button><button class="btn sm D" data-a="now">Play now</button><button class="btn sm acc D hide-m" data-a="next">Next</button></div></div>`).join("")}
  // per-frame
  const sbs=sb&&sb.state;$("dBs").innerHTML=!nx?"":sbs==="primed"?'<span style="color:var(--a)">● Ready</span>':sbs==="loading"?"○ Cueing":sbs==="playing"?'<span style="color:var(--a)">● Mixing in</span>':sbs==="error"?"✕ Skipping":"○ Waiting";
  if(it&&E.cur){const D=E.cur.dur()||it.duration||Math.max(it.end,60),t=E.cur.t();
@@ -665,6 +667,7 @@ tlDrag($("lTl"),(f,e,start)=>{const it=E.curItem,c=E.cur;if(!it||!c||E.tr)return
  scrub=f*D;$("lPh").style.left=f*100+"%";$("lStat").textContent=`Jump to ${fmt(scrub)}`});
 $("lTl").addEventListener("pointerup",()=>{if(scrub!=null){E.seek(scrub);scrub=null}});
 $("lq").onclick=e=>{const b=e.target.closest("button[data-a]"),r=e.target.closest(".row");if(!r)return;const i=+r.dataset.i;
+ if(b&&b.dataset.a==="edit"){const pi=P(E.pl.id).items.find(x=>x.uid===E.items[i].uid);if(pi)openEditor(Object.assign({},pi),{pid:E.pl.id,uid:pi.uid});return}
  if(b&&b.dataset.a==="next")E.playNext(i);else if(b)E.jump(i);else if(E.skip.has(E.items[i].uid)){E.skip.delete(E.items[i].uid);E.primeNext(true);dirtyLive=true}};
 $("lSkip").onclick=()=>E.skipNow();$("lFull").onclick=()=>E.pauseToggle();$("lRm").onclick=()=>E.removeNext();
 $("lPn").onclick=()=>{$("lq").scrollIntoView({behavior:"smooth"});toast("Tap “Next” on any song below")};
