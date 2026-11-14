@@ -514,7 +514,8 @@ class Deck{constructor(n){this.name=n;this.wrap=$("deck"+n);this.item=null;this.
   events:{onReady:cb,onStateChange:e=>this.onState(e.data),onError:e=>this.onErr(e.data)}})}
  prime(it){this.item=it;this.state="loading";this.since=performance.now();try{this.setVol(0,true);this.player.mute();this.player.loadVideoById({videoId:it.video_id,startSeconds:it.start})}catch(e){this.state="error"}}
  onState(s){
-  if(s===1&&this.state==="loading"){this.player.pauseVideo();this.player.seekTo(this.item.start,true);this.state="primed";return}
+  // let it play muted until the real song is running (any ad gets used up silently), then park it at IN
+  if(s===1&&this.state==="loading"){this.state="warming";this.warmAt=performance.now();return}
   if(s===0&&this.state==="playing"){E.ended(this);return}
   // paused/resumed from outside our app (e.g. the Mac play/pause key) → keep the engine in sync
   if(this===E.cur&&!E.tr){if(s===2&&this.state==="playing")E.extPause();else if(s===1&&this.state==="paused")E.extResume()}}
@@ -522,7 +523,7 @@ class Deck{constructor(n){this.name=n;this.wrap=$("deck"+n);this.item=null;this.
   if(this.item){const o=E.items.find(x=>x.uid===this.item.uid);if(o)o.bad=ERR[c]||(c==="stall"?"stopped loading":"error "+c);
    if([2,100,101,150].includes(c)&&E.pl){const p=P(E.pl.id),pi=p&&p.items.find(x=>x.uid===this.item.uid);if(pi&&!pi.unplayable){pi.unplayable=true;save(p)}}}
   E.deckErr(this)}
- go(){this.state="playing";this.moved=performance.now();this.lt=-1;try{this.setVol(0,true);this.player.unMute();this.setVol(0,true);this.player.playVideo()}catch(e){}}
+ go(){const w=this.state==="warming";this.state="playing";if(w)try{this.player.seekTo(this.item.start,true)}catch(e){}this.moved=performance.now();this.lt=-1;try{this.setVol(0,true);this.player.unMute();this.setVol(0,true);this.player.playVideo()}catch(e){}}
  pause(){if(this.state==="playing"){this.state="paused";try{this.player.pauseVideo()}catch(e){}}}
  resume(){if(this.state==="paused"){this.state="playing";this.moved=performance.now();try{this.player.playVideo()}catch(e){}}}
  stop(){this.state="empty";this.item=null;try{this.setVol(0,true);this.player.pauseVideo();this.player.mute()}catch(e){}this.show(false)}
@@ -558,7 +559,7 @@ const E={pl:null,items:[],cf:4,offs:[],tot:0,A:null,B:null,cur:null,curItem:null
    const sb=this.tr.to;if(!(sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&sb.state!=="error"))sb.prime(Object.assign({},it));this.tr.idx=i;
    if(manual)this.tr.dur=Math.min(this.tr.dur,this.tr.p+this.fadeOut(it,true));return}
   const from=this.cur;if(!from){this.startAt(i);return}
-  const sb=this.other(from);if(!(sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&(sb.state==="primed"||sb.state==="loading")))sb.prime(Object.assign({},it));
+  const sb=this.other(from);if(!(sb.item&&sb.item.uid===it.uid&&sb.item.start===it.start&&(sb.state==="primed"||sb.state==="loading"||sb.state==="warming")))sb.prime(Object.assign({},it));
   this.tr={phase:"out",from,to:sb,idx:i,p:0,dur:this.fadeOut(this.curItem,manual),v0:from.vol};dirtyLive=true},
  startAt(i){// cold start (first song, or after stop): no fade-out needed
   this.playing=true;this.paused=false;this.g=1;this.gT=1;this.after=null;
@@ -603,16 +604,19 @@ const E={pl:null,items:[],cf:4,offs:[],tot:0,A:null,B:null,cur:null,curItem:null
  tick(){const t0=performance.now(),dt=Math.min(.5,(t0-this.last)/1000);this.last=t0;
   if(this.g!==this.gT){const st=dt/this.gS;this.g=this.gT>this.g?Math.min(this.gT,this.g+st):Math.max(this.gT,this.g-st);
    if(this.g===this.gT&&this.after){const f=this.after;this.after=null;f()}}
+  for(const d of [this.A,this.B])if(d&&d.state==="warming"){const t=d.t();
+   if(t>=d.item.start+.8||t0-d.warmAt>25000){try{d.player.pauseVideo();d.player.seekTo(d.item.start,true)}catch(e){}d.state="primed"}}
   if(!this.playing)return;
   const tr=this.tr;
   if(tr){
    if(tr.phase==="out"){tr.p+=dt;const x=tr.p/tr.dur;tr.from.setVol(tr.v0*(1-ease(x))*this.g);
     if(x>=1){tr.from.stop();if(tr.idx<0){this.finish();return}tr.phase="wait";tr.since=t0;this.cur=tr.to;this.curItem=null;dirtyLive=true}}
    if(tr.phase==="wait"){const st=tr.to.state,w=(t0-tr.since)/1000;
-    if(st==="primed"||(st==="loading"&&w>6)){tr.to.go();tr.to.show(true);$("decks").querySelectorAll(".deck").forEach(el=>{if(el!==tr.to.wrap)el.classList.remove("on")});
+    if(st==="primed"||((st==="loading"||st==="warming")&&w>6)){tr.to.go();tr.to.show(true);$("decks").querySelectorAll(".deck").forEach(el=>{if(el!==tr.to.wrap)el.classList.remove("on")});
      this.cur=tr.to;this.curItem=tr.to.item;this.idx=tr.idx;if(this.force===tr.to.item.uid)this.force=null;
-     tr.phase="in";tr.p=0;tr.dur=this.fadeIn(this.curItem);dirtyLive=true;if(screen==="set")rSet()}}
-   else if(tr.phase==="in"){tr.p+=dt;const x=tr.p/tr.dur;tr.to.setVol(this.M()*ease(x));if(x>=1){this.tr=null;this.primeNext(false)}}
+     tr.phase="in";tr.p=0;tr.dur=this.fadeIn(this.curItem);dirtyLive=true;if(screen==="set")rSet();
+     this.primeNext(true)}} // start loading the following song right away
+   else if(tr.phase==="in"){tr.p+=dt;const x=tr.p/tr.dur;tr.to.setVol(this.M()*ease(x));if(x>=1){this.tr=null;this.primeNext(true)}}
   }else if(this.cur&&this.curItem&&this.cur.state==="playing"){
    const t=this.cur.t(),it=this.curItem,n=this.nextIdx();
    const fo=this.fadeOut(it);
@@ -650,7 +654,7 @@ function liveFrame(){const live=E.playing||E.paused;
    <span class="n D">${i+1}</span><img loading="lazy" src="${thumb(x.video_id,"default")}"><div style="min-width:0"><div class="tt D">${esc(x.title)}</div><div class="ch">${esc(x.bad?"Can't play: "+x.bad:x.channel||"")}</div></div>
    <span class="rg D">${fmt(x.start)}–${fmt(x.end)}</span><div style="display:flex;gap:6px"><button class="btn sm D" data-a="edit">Edit</button><button class="btn sm D" data-a="now">Play now</button><button class="btn sm acc D hide-m" data-a="next">Next</button></div></div>`).join("")}
  // per-frame
- const sbs=sb&&sb.state;$("dBs").innerHTML=!nx?"":sbs==="primed"?'<span style="color:var(--a)">● Ready</span>':sbs==="loading"?"○ Cueing":sbs==="playing"?'<span style="color:var(--a)">● Mixing in</span>':sbs==="error"?"✕ Skipping":"○ Waiting";
+ const sbs=sb&&sb.state;$("dBs").innerHTML=!nx?"":sbs==="primed"?'<span style="color:var(--a)">● Ready</span>':sbs==="loading"||sbs==="warming"?"○ Buffering":sbs==="playing"?'<span style="color:var(--a)">● Mixing in</span>':sbs==="error"?"✕ Skipping":"○ Waiting";
  if(it&&E.cur){const D=E.cur.dur()||it.duration||Math.max(it.end,60),t=E.cur.t();
   $("lIn").style.left=it.start/D*100+"%";$("lOut").style.left=Math.min(100,it.end/D*100)+"%";if(scrub==null)$("lPh").style.left=Math.min(100,t/D*100)+"%";
   $("lIn").querySelector("b").textContent="In "+fmt(it.start);$("lOut").querySelector("b").textContent="Out "+fmt(it.end);
